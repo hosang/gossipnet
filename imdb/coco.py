@@ -1,3 +1,6 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import cPickle
 import os.path
@@ -36,11 +39,11 @@ def load_coco(split, year):
     roidb = load_im_info(coco)
     gt_splits = {'train', 'val', 'minival', 'minival2'}
     if split in gt_splits:
-        print 'converting annotations'
+        print('converting annotations')
         gt_roidb = load_annotations(coco, cat_id_to_class_ind)
         roidb = merge_roidbs(roidb, gt_roidb)
 
-    print 'loading detections'
+    print('loading detections')
     det_roidb = load_detections(name, cfg.train.detector, cat_id_to_class_ind)
     roidb = merge_roidbs(roidb, det_roidb)
 
@@ -79,8 +82,8 @@ def load_detections(imdb_name, detector, cat_id_to_class_ind):
         roidb.append({
             'id': imid,
             'dets': imdets,
-            'det_score': scores,
-            'det_class': cls,
+            'det_scores': scores,
+            'det_classes': cls,
         })
     return roidb
 
@@ -106,6 +109,7 @@ def load_im_info(coco):
             'height': im_info['height'],
             # TODO(hosang): turn this into an absolute path?
             'filename': im_info['file_name'],
+            'flipped': False,
         })
     return roidb
 
@@ -141,7 +145,6 @@ def load_image_annos(coco, image_id, cat_id_to_class_ind):
         'gt_boxes': boxes,
         'gt_classes': classes,
         'gt_crowd': crowd,
-        'mirrored': False,
     }
 
 
