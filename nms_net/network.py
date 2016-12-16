@@ -47,16 +47,24 @@ class GnetParams(object):
 
 
 class Gnet(object):
+    batch_spec = {
+        'dets': (tf.float32, [None, 4]),
+        'det_scores': (tf.float32, [None, 1]),
+        'annos': (tf.float32, [None, 4]),
+        'crowd': (tf.bool, [None]),
+    }
 
-    def __init__(self, **kwargs):
+    def __init__(self, batch=None, **kwargs):
         self.params = GnetParams(**kwargs)
         params = self.params
 
         # inputs
-        self.dets = tf.placeholder(tf.float32, shape=[None, 4])
-        self.annos = tf.placeholder(tf.float32, shape=[None, 4])
-        self.det_scores = tf.placeholder(tf.float32, shape=[None, 1])
-        self.crowd = tf.placeholder(tf.bool, shape=[None])
+        if batch is None:
+            for name, (dtype, shape) in self.batch_spec.items():
+                setattr(self, name, tf.placeholder(dtype, shape=shape))
+        else:
+            for name, _ in self.batch_spec.items():
+                setattr(self, name, batch[name])
 
         # generate useful box transformations (once)
         self.dets_boxdata = self._xywh_to_boxdata(self.dets)
@@ -224,6 +232,8 @@ class Gnet(object):
 
     @staticmethod
     def _intersection(a, b):
+        """ Compute intersection between all ways of boxes in a and b.
+        """
         ax1 = a[0]
         ay1 = a[1]
         ax2 = a[4]

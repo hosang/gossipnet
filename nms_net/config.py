@@ -23,6 +23,7 @@ cfg.train.multi_step = [(10000, 0.1), (40000, 0.01), (80000, 0.001)]
 cfg.train.detector = 'FRCN_person'
 cfg.train.flip = True
 cfg.train.only_class = None
+cfg.train.imdb = 'coco_2014_train'
 
 # Gnet parameters
 cfg.gnet = edict()
