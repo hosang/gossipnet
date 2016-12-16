@@ -27,13 +27,18 @@ for year in ['2015']:
 
 
 def get_imdb(name):
+    # TODO(jhosang): add caching here
     return _imdbs[name]()
 
 
 def prepro_train(train_imdb):
     if cfg.train.only_class is not None:
+        print('dropping all classes but {}'.format(cfg.train.only_class))
         imdb.tools.only_keep_class(train_imdb, cfg.train.only_class)
+    print('dropping images without detection')
     train_imdb['roidb'] = imdb.tools.drop_no_dets(train_imdb['roidb'])
+    print('dropping images without annotations')
     train_imdb['roidb'] = imdb.tools.drop_no_gt(train_imdb['roidb'])
+    print('appending flipped images')
     train_imdb['roidb'] = imdb.tools.append_flipped(train_imdb['roidb'])
 
