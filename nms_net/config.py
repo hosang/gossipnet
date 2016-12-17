@@ -14,12 +14,13 @@ cfg.ROOT_DIR = os.path.normpath(os.path.join(this_path, '..'))
 
 # training parameters
 cfg.train = edict()
-cfg.train.optimizer = 'adam'
+cfg.train.optimizer = 'sgd'
 cfg.train.model_init = None
 cfg.train.resume = None
 cfg.train.momentum = 0.9
+cfg.train.weight_decay = 0.0005
 cfg.train.num_iter = 100000
-cfg.train.multi_step = [(10000, 0.1), (40000, 0.01), (80000, 0.001)]
+cfg.train.multi_step = [(10000, 0.0001), (40000, 0.00001), (80000, 0.000001)]
 cfg.train.detector = 'FRCN_person'
 cfg.train.flip = True
 cfg.train.only_class = None

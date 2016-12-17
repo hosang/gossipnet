@@ -16,7 +16,7 @@ REGISTER_OP("DetectionMatching")
     .Attr("T: {float}")
     .Input("iou: T")
     .Input("score: T")
-    .Input("ignore: T")
+    .Input("ignore: bool")
     .Output("labels: T")
     .Output("weights: T")
     .Output("assignment: int32")
@@ -37,7 +37,8 @@ class DetectionMatchingOp : public OpKernel {
  public:
   explicit DetectionMatchingOp(OpKernelConstruction* context) : OpKernel(context) {}
 
-  vector<size_t> argsort(const typename TTypes<T>::ConstFlat &v) {
+  template <typename T2>
+  vector<size_t> argsort(const typename TTypes<T2>::ConstFlat &v) {
       vector<size_t> idx(v.dimension(0));
       iota(idx.begin(), idx.end(), 0);
 
@@ -54,13 +55,13 @@ class DetectionMatchingOp : public OpKernel {
     const Tensor& score_tensor = context->input(1);
     auto score = score_tensor.flat<T>();
     const Tensor& ignore_tensor = context->input(2);
-    auto ignore = ignore_tensor.flat<T>();
+    auto ignore = ignore_tensor.flat<bool>();
 
 
-    auto det_order = argsort(score);
+    auto det_order = argsort<T>(score);
     reverse(det_order.begin(), det_order.end());
 
-    auto gt_order = argsort(ignore);
+    auto gt_order = argsort<bool>(ignore);
 
     // Create output tensors
     Tensor* label_tensor = NULL;
@@ -94,9 +95,9 @@ class DetectionMatchingOp : public OpKernel {
             const int gt = gt_order[_gt_i];
 
             // if this gt already matched, and not a crowd, continue
-            if (is_matched[gt] && ignore(gt) == 0) continue;
+            if (is_matched[gt] && !ignore(gt)) continue;
             // if dt matched to reg gt, and on ignore gt, stop
-            if (match > -1 && ignore(gt) != 0) break;
+            if (match > -1 && ignore(gt)) break;
             // continue to next gt unless better match made
             if (ious(det, gt) < iou) continue;
 
@@ -109,7 +110,7 @@ class DetectionMatchingOp : public OpKernel {
         if (match > -1) {
             labels(det) = 1;
             assignments(det) = match;
-            if (ignore(match) != 0) {
+            if (ignore(match)) {
                 weights(det) = 0;
             }
         }

@@ -35,7 +35,7 @@ def get_optimizer(loss_op):
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
     elif cfg.train.optimizer == 'sgd':
         optimizer = tf.train.MomentumOptimizer(
-            learning_rate=learning_rate, momentum=cfg.momentum)
+            learning_rate=learning_rate, momentum=cfg.train.momentum)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.train.optimizer))
     train_op = slim.learning.create_train_op(loss_op, optimizer)
@@ -45,7 +45,7 @@ def get_optimizer(loss_op):
 def load_and_enqueue(sess, enqueue_op, coord, dataset, placeholders):
     while not coord.should_stop():
         batch = dataset.next_batch()
-        food = {ph: batch[name] for (name, ph) in placeholders.items()}
+        food = {ph: batch[name] for (name, ph) in placeholders}
         sess.run(enqueue_op, feed_dict=food)
 
 
@@ -53,10 +53,10 @@ def setup_preloading(batch_spec):
     spec = list(batch_spec.items())
     dtypes = [dtype for _, (dtype, _) in spec]
     shapes = [shape for _, (_, shape) in spec]
-    enqueue_placeholders = [tf.placeholder(dtype, shape=shape)
-                            for _, (dtype, shape) in spec]
-    q = tf.FIFOQueue(cfg.prefetch_q_size, dtypes, shapes=shapes)
-    enqueue_op = q.enqueue(enqueue_placeholders)
+    enqueue_placeholders = [(name, tf.placeholder(dtype, shape=shape))
+                            for name, (dtype, shape) in spec]
+    q = tf.FIFOQueue(cfg.prefetch_q_size, dtypes)
+    enqueue_op = q.enqueue([ph for _, ph in enqueue_placeholders])
     dequeue_op = q.dequeue()
     q_size = q.size()
     preloaded_batch = {name: dequeue_op[i] for i, (name, _) in enumerate(spec)}
@@ -74,19 +74,26 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
 
 def get_dataset():
     train_imdb = imdb.get_imdb(cfg.train.imdb)
+    # TODO(jhosang): print stats of the data
     imdb.prepro_train(train_imdb)
-    return Dataset(imdb)
+    return Dataset(train_imdb, 1)
 
 
-def train():
-    dataset = get_dataset()
-    preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
-            Gnet.batch_spec)
-    net = Gnet(batch=preloaded_batch, **cfg.gnet)
-    lr_gen = LearningRate()
-    learning_rate, train_op = get_optimizer(net.loss)
+def train(device):
+    with tf.device(device):
+        dataset = get_dataset()
+        preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
+                Gnet.batch_spec)
+        reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
+        net = Gnet(batch=preloaded_batch, weight_reg=reg, **cfg.gnet)
+        lr_gen = LearningRate()
+        reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        learning_rate, train_op = get_optimizer(
+                net.loss + tf.reduce_mean(reg_ops))
 
-    with tf.Session() as sess:
+    config = tf.ConfigProto(
+            allow_soft_placement=True)
+    with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         coord, prefetch_thread = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
@@ -96,7 +103,8 @@ def train():
                 [train_op, net.loss],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
 
-            print('iter {}   loss {}'.format(it, loss))
+            if it % 20 == 0:
+                print('iter {}   loss {}'.format(it, loss))
 
             # TODO(jhsoang): https://www.tensorflow.org/api_docs/python/summary/
             # TODO(jhosang): save snapshot
@@ -117,11 +125,11 @@ def main():
     cfg_from_file(args.config)
 
     if args.cpu:
-        tf.device('/cpu')
+        device = '/cpu'
     else:
-        tf.device('/gpu:{}'.format(args.gpu))
+        device = '/gpu:{}'.format(args.gpu)
 
-    train()
+    train(device)
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import tensorflow as tf
 
 this_path = os.path.dirname(os.path.realpath(__file__))
 matching_module = tf.load_op_library(os.path.join(this_path, 'det_matching.so'))
+tf.NotDifferentiable("DetectionMatching")
 
 
 # TODO(jhosang): implement validation pass & mAP
@@ -49,12 +50,12 @@ class GnetParams(object):
 class Gnet(object):
     batch_spec = {
         'dets': (tf.float32, [None, 4]),
-        'det_scores': (tf.float32, [None, 1]),
-        'annos': (tf.float32, [None, 4]),
-        'crowd': (tf.bool, [None]),
+        'det_scores': (tf.float32, [None]),
+        'gt_boxes': (tf.float32, [None, 4]),
+        'gt_crowd': (tf.bool, [None]),
     }
 
-    def __init__(self, batch=None, **kwargs):
+    def __init__(self, batch=None, weight_reg=None, **kwargs):
         self.params = GnetParams(**kwargs)
         params = self.params
 
@@ -63,16 +64,17 @@ class Gnet(object):
             for name, (dtype, shape) in self.batch_spec.items():
                 setattr(self, name, tf.placeholder(dtype, shape=shape))
         else:
-            for name, _ in self.batch_spec.items():
+            for name, (dtype, shape) in self.batch_spec.items():
+                batch[name].set_shape(shape)
                 setattr(self, name, batch[name])
 
         # generate useful box transformations (once)
         self.dets_boxdata = self._xywh_to_boxdata(self.dets)
-        self.annos_boxdata = self._xywh_to_boxdata(self.annos)
+        self.gt_boxdata = self._xywh_to_boxdata(self.gt_boxes)
 
         # overlaps
         self.det_anno_iou = self._iou(
-            self.dets_boxdata, self.annos_boxdata, self.crowd)
+            self.dets_boxdata, self.gt_boxdata, self.gt_crowd)
         self.det_det_iou = self._iou(self.dets_boxdata, self.dets_boxdata)
 
         # find neighbors
@@ -102,7 +104,7 @@ class Gnet(object):
             outfeats = self._block(
                 block_idx, params, self.block_feats[-1],
                 weights_init, biases_init, pair_c_idxs,
-                pair_n_idxs, pw_feats)
+                pair_n_idxs, pw_feats, weight_reg)
             self.block_feats.append(outfeats)
 
         # do prediction
@@ -126,20 +128,21 @@ class Gnet(object):
         # matching loss
         self.labels, self.weights, self.det_gt_matching = \
             matching_module.detection_matching(
-                self.det_anno_iou, self.prediction,
-                tf.cast(self.crowd, tf.float32))
-        self.loss = weighted_logistic_loss(
+                self.det_anno_iou, self.prediction, self.gt_crowd)
+        logistic_loss = weighted_logistic_loss(
             self.prediction, self.labels, self.weights)
+        self.loss = tf.reduce_sum(logistic_loss)
 
     @staticmethod
     def _block(block_idx, params, infeats, weights_init, biases_init,
-               pair_c_idxs, pair_n_idxs, pw_feats):
+               pair_c_idxs, pair_n_idxs, pw_feats, weight_reg):
         with tf.name_scope('block{}'.format(block_idx)):
             with tf.name_scope('reduce_dim'):
                 feats = tf.contrib.layers.fully_connected(
                     inputs=infeats, num_outputs=params.reduced_dim,
                     activation_fn=tf.nn.relu,
                     weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
                     biases_initializer=biases_init)
 
             with tf.name_scope('build_context'):
@@ -153,6 +156,7 @@ class Gnet(object):
                         inputs=feats, num_outputs=params.pairfeat_dim,
                         activation_fn=tf.nn.relu,
                         weights_initializer=weights_init,
+                        weights_regularizer=weight_reg,
                         biases_initializer=biases_init)
 
             with tf.name_scope('pooling'):
@@ -178,6 +182,7 @@ class Gnet(object):
                         inputs=feats, num_outputs=params.pairfeat_dim,
                         activation_fn=tf.nn.relu,
                         weights_initializer=weights_init,
+                        weights_regularizer=weight_reg,
                         biases_initializer=biases_init)
 
             with tf.name_scope('fc{}'.format(block_idx, params.num_block_fc)):
@@ -185,18 +190,20 @@ class Gnet(object):
                     inputs=feats, num_outputs=params.shortcut_dim,
                     activation_fn=None,
                     weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
                     biases_initializer=biases_init)
             outfeats = tf.nn.relu(infeats + feats)
         return outfeats
 
     def _geometry_feats(self, c_idxs, n_idxs):
-        c_score = tf.gather(self.det_scores, c_idxs)
-        n_score = tf.gather(self.det_scores, n_idxs)
+        det_scores = tf.expand_dims(self.det_scores, -1)
+        c_score = tf.gather(det_scores, c_idxs)
+        n_score = tf.gather(det_scores, n_idxs)
         tmp_ious = tf.expand_dims(self.det_det_iou, -1)
         ious = tf.gather_nd(tmp_ious, self.neighbor_pair_idxs)
         # TODO(jhosang): implement the rest of the pairwise features
         all = tf.concat(1, [c_score, n_score, ious])
-        return all
+        return tf.stop_gradient(all)
 
     @staticmethod
     def _zero_diagonal(a):

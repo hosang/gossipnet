@@ -70,6 +70,7 @@ def load_detections(imdb_name, detector, cat_id_to_class_ind):
         scores = []
         for cat_i, cat_id in enumerate(cat_ids):
             t_dets = dets[cat_i][i]
+            if t_dets.size == 0: continue
             n = t_dets.shape[0]
             cls_ind = cat_id_to_class_ind[cat_id]
             cls.append(np.zeros((n,), dtype=np.int32) + cls_ind)
