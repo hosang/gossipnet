@@ -98,6 +98,13 @@ def train(device):
         learning_rate, train_op = get_optimizer(
                 net.loss + tf.reduce_mean(reg_ops))
 
+        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        maintain_averages_op = ema.apply([net.loss])
+        # update moving averages after every loss evaluation
+        with tf.control_dependencies([train_op]):
+            train_op = tf.group(maintain_averages_op)
+        average_loss = ema.average(net.loss)
+
     config = tf.ConfigProto(
             allow_soft_placement=True)
     with tf.Session(config=config) as sess:
@@ -107,7 +114,7 @@ def train(device):
 
         for it in range(1, cfg.train.num_iter + 1):
             _, loss = sess.run(
-                [train_op, net.loss],
+                [train_op, average_loss],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
 
             if it % 20 == 0:
