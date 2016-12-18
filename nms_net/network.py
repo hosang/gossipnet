@@ -5,6 +5,7 @@ from __future__ import print_function
 
 import os.path
 
+import numpy as np
 import tensorflow as tf
 
 from nms_net import cfg
@@ -230,8 +231,36 @@ class Gnet(object):
         n_score = tf.gather(det_scores, n_idxs)
         tmp_ious = tf.expand_dims(self.det_det_iou, -1)
         ious = tf.gather_nd(tmp_ious, self.neighbor_pair_idxs)
+
         # TODO(jhosang): implement the rest of the pairwise features
-        all = tf.concat(1, [c_score, n_score, ious])
+        x1, y1, w, h, _, _, _ = self.dets_boxdata
+        c_w = tf.gather(w, c_idxs)
+        c_h = tf.gather(h, c_idxs)
+        c_scale = (c_w + c_h) / 2.0
+        c_cx = tf.gather(x1, c_idxs) + c_w / 2.0
+        c_cy = tf.gather(y1, c_idxs) + c_h / 2.0
+
+        n_w = tf.gather(w, n_idxs)
+        n_h = tf.gather(h, n_idxs)
+        n_scale = (n_w + n_h) / 2.0
+        n_cx = tf.gather(x1, n_idxs) + n_w / 2.0
+        n_cy = tf.gather(y1, n_idxs) + n_h / 2.0
+
+        # normalized x, y distance
+        x_dist = (n_cx - c_cx)
+        y_dist = (n_cy - c_cy)
+        l2_dist = tf.sqrt(x_dist ** 2 + y_dist ** 2) / c_scale
+        x_dist /= c_scale
+        y_dist /= c_scale
+
+        # scale difference
+        log2 = tf.constant(np.log(2.0), dtype=tf.float32)
+        w_diff = tf.log(n_w / c_w) / log2
+        h_diff = tf.log(n_h / c_h) / log2
+        aspect_diff = (tf.log(n_w / n_h) - tf.log(c_w / c_h)) / log2
+
+        all = tf.concat(1, [c_score, n_score, ious, x_dist, y_dist, l2_dist,
+            w_diff, h_diff, aspect_diff])
         return tf.stop_gradient(all)
 
     @staticmethod
