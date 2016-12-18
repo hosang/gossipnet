@@ -7,6 +7,7 @@ from __future__ import print_function
 import argparse
 import threading
 
+import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -19,7 +20,7 @@ from nms_net.dataset import Dataset
 
 class LearningRate(object):
     def __init__(self):
-        self.steps = cfg.train.multi_step
+        self.steps = cfg.train.lr_multi_step
         self.current_step = 0
 
     def get_lr(self, iter):
@@ -32,13 +33,18 @@ class LearningRate(object):
 def get_optimizer(loss_op):
     learning_rate = tf.placeholder(tf.float32, shape=[])
     if cfg.train.optimizer == 'adam':
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+        opt_func = tf.train.AdamOptimizer(learning_rate=learning_rate)
     elif cfg.train.optimizer == 'sgd':
-        optimizer = tf.train.MomentumOptimizer(
+        opt_func = tf.train.MomentumOptimizer(
             learning_rate=learning_rate, momentum=cfg.train.momentum)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.train.optimizer))
-    train_op = slim.learning.create_train_op(loss_op, optimizer)
+    if cfg.train.gradient_clipping > 0:
+        tvars = tf.trainable_variables()
+        grads, _ = tf.clip_by_global_norm(tf.gradients(loss_op, tvars), cfg.train.gradient_clipping)
+        train_op = opt_func.apply_gradients(zip(grads, tvars))
+    else:
+        train_op = slim.learning.create_train_op(loss_op, opt_func)
     return learning_rate, train_op
 
 
@@ -80,6 +86,7 @@ def get_dataset():
 
 
 def train(device):
+    np.random.seed(cfg.random_seed)
     with tf.device(device):
         dataset = get_dataset()
         preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(

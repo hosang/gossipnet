@@ -2,7 +2,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import cPickle
+try:
+    import cPickle as pickle
+except:
+    import pickle
 import os.path
 import numpy as np
 
@@ -18,7 +21,7 @@ def load_coco(split, year):
                               '{}.pkl'.format(name))
     if os.path.exists(cache_file):
         with open(cache_file, 'rb') as fp:
-            return cPickle.load(fp)
+            return pickle.load(fp)
 
     ann_file = os.path.join(cfg.ROOT_DIR, 'data', 'coco', 'annotations',
                             'instances_{}{}.json'.format(split, year))
@@ -37,8 +40,8 @@ def load_coco(split, year):
                            for cls in classes[1:]}
 
     roidb = load_im_info(coco)
-    gt_splits = {'train', 'val', 'minival', 'minival2'}
-    if split in gt_splits:
+    # gt_splits = {'train', 'val', 'minival', 'minival2'}
+    if has_gt:
         print('converting annotations')
         gt_roidb = load_annotations(coco, cat_id_to_class_ind)
         roidb = merge_roidbs(roidb, gt_roidb)
@@ -60,8 +63,8 @@ def load_coco(split, year):
 def load_detections(imdb_name, detector, cat_id_to_class_ind):
     filename = os.path.join(cfg.ROOT_DIR, 'data',
                             '{}_{}.pkl'.format(imdb_name, detector))
-    with open(filename) as fp:
-        dets, det_im_ids, cat_ids = cPickle.load(fp)
+    with open(filename, 'rb') as fp:
+        dets, det_im_ids, cat_ids = pickle.load(fp, encoding='latin1')
 
     roidb = []
     for i, imid in enumerate(det_im_ids):

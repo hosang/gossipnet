@@ -32,6 +32,7 @@ def get_imdb(name):
 
 
 def prepro_train(train_imdb):
+    imdb.tools.print_stats(train_imdb)
     if cfg.train.only_class is not None:
         print('dropping all classes but {}'.format(cfg.train.only_class))
         imdb.tools.only_keep_class(train_imdb, cfg.train.only_class)
@@ -41,4 +42,5 @@ def prepro_train(train_imdb):
     train_imdb['roidb'] = imdb.tools.drop_no_gt(train_imdb['roidb'])
     print('appending flipped images')
     train_imdb['roidb'] = imdb.tools.append_flipped(train_imdb['roidb'])
+    imdb.tools.print_stats(train_imdb)
 

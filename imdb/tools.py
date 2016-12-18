@@ -2,6 +2,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 
 def append_flipped(roidb):
     def flip(boxes, width):
@@ -49,3 +51,19 @@ def only_keep_class(imdb, class_name):
         roi['det_classes'] = roi['det_classes'][mask].copy()
         roi['dets'] = roi['dets'][mask].copy()
         roi['det_scores'] = roi['det_scores'][mask].copy()
+
+def print_stats(imdb):
+    roidb = imdb['roidb']
+    num_annos = 0
+    num_crowd = 0
+    num_dets = 0
+    for roi in roidb:
+        if 'gt_crowd' in roi:
+            crowd = np.sum(roi['gt_crowd'])
+            num_crowd += crowd
+            num_annos += roi['gt_boxes'].shape[0] - crowd
+        if 'dets' in roi:
+            num_dets += roi['dets'].shape[0]
+    print('{} images: {} detections, {} crowd annotations, {} non-crowd annotations'.format(
+        len(roidb), num_dets, num_crowd, num_annos))
+

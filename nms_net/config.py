@@ -14,17 +14,19 @@ cfg.ROOT_DIR = os.path.normpath(os.path.join(this_path, '..'))
 
 # training parameters
 cfg.train = edict()
-cfg.train.optimizer = 'sgd'
+cfg.train.optimizer = 'adam'
 cfg.train.model_init = None
 cfg.train.resume = None
 cfg.train.momentum = 0.9
 cfg.train.weight_decay = 0.0005
 cfg.train.num_iter = 100000
-cfg.train.multi_step = [(10000, 0.0001), (40000, 0.00001), (80000, 0.000001)]
+cfg.train.lr_multi_step = [(40000, 0.01), (80000, 0.000001), (200000, 0.0000001)]
+cfg.train.gradient_clipping = 1000.0
 cfg.train.detector = 'FRCN_person'
 cfg.train.flip = True
 cfg.train.only_class = None
-cfg.train.imdb = 'coco_2014_train'
+cfg.train.imdb = 'coco_2014_minival'
+cfg.train.pos_weight = 0.1
 
 # Gnet parameters
 cfg.gnet = edict()
@@ -48,7 +50,7 @@ def _merge_a_into_b(a, b):
     if type(a) is not edict:
         return
 
-    for k, v in a.iteritems():
+    for k, v in a.items():
         # a must specify keys that are in b
         if not b.has_key(k):
             raise KeyError('{} is not a valid config key'.format(k))

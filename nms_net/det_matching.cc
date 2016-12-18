@@ -51,12 +51,24 @@ class DetectionMatchingOp : public OpKernel {
     const T iou_thresh = 0.5;
 
     const Tensor& iou_tensor = context->input(0);
+    OP_REQUIRES(context, TensorShapeUtils::IsMatrix(iou_tensor.shape()),
+                errors::InvalidArgument("DetectionMatching expects a 2-D vector as input 1."));
     auto ious = iou_tensor.tensor<T,2>();
     const Tensor& score_tensor = context->input(1);
+    OP_REQUIRES(context, TensorShapeUtils::IsVector(score_tensor.shape()),
+                errors::InvalidArgument("DetectionMatching expects a 1-D vector as input 2."));
     auto score = score_tensor.flat<T>();
     const Tensor& ignore_tensor = context->input(2);
+    OP_REQUIRES(context, TensorShapeUtils::IsVector(ignore_tensor.shape()),
+                errors::InvalidArgument("DetectionMatching expects a 1-D vector as input 3."));
     auto ignore = ignore_tensor.flat<bool>();
 
+    OP_REQUIRES(context, ious.dimension(0) == score.dimension(0),
+                errors::InvalidArgument("DetectionMatching expects dim 1 of input 1 and dim 1 of input 2 to be the same (",
+                    ious.dimension(0), " != ", score.dimension(0), ")"))
+    OP_REQUIRES(context, ious.dimension(1) == ignore.dimension(0),
+                errors::InvalidArgument("DetectionMatching expects dim 2 of input 1 and dim 1 of input 3 to be the same (",
+                    ious.dimension(1), " != ", ignore.dimension(0), ")"))
 
     auto det_order = argsort<T>(score);
     reverse(det_order.begin(), det_order.end());
@@ -84,7 +96,7 @@ class DetectionMatchingOp : public OpKernel {
 
     const int n_dets = ious.dimension(0);
     const int n_gt = ious.dimension(1);
-    vector<uint8> is_matched(n_dets, 0);
+    vector<bool> is_matched(n_gt, false);
 
     for (int _det_i = 0; _det_i < n_dets; ++_det_i) {
         const int det = det_order[_det_i];
@@ -104,7 +116,7 @@ class DetectionMatchingOp : public OpKernel {
             // match successful and best so far, store appropriately
             iou = ious(det, gt);
             match = gt;
-            is_matched[gt] = 1;
+            is_matched[gt] = true;
         }
 
         if (match > -1) {

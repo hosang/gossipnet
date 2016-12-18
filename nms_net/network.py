@@ -7,13 +7,35 @@ import os.path
 
 import tensorflow as tf
 
+from nms_net import cfg
+
 
 this_path = os.path.dirname(os.path.realpath(__file__))
 matching_module = tf.load_op_library(os.path.join(this_path, 'det_matching.so'))
 tf.NotDifferentiable("DetectionMatching")
 
-
 # TODO(jhosang): implement validation pass & mAP
+
+def get_sample_weights(num_classes, labels):
+    pos_weight = cfg.train.pos_weight
+    with tf.name_scope('loss_weighting'):
+        exp_class_weights = tf.constant([1.0 - pos_weight] +
+                [pos_weight / (num_classes - 1)] * (num_classes - 1),
+                dtype=tf.float32)
+        class_counts = tf.Variable(
+                tf.ones([num_classes], dtype=tf.int64), trainable=False)
+
+        t_label_count = tf.histogram_fixed_width(
+                labels, [-0.5, num_classes - 0.5], nbins=num_classes,
+                dtype=tf.int64)
+        class_counts = class_counts.assign_add(t_label_count)
+        total_samples = tf.cast(tf.reduce_sum(class_counts), dtype=tf.float32)
+        class_weights = tf.truediv(
+                tf.scalar_mul(total_samples, exp_class_weights),
+                tf.cast(class_counts, tf.float32))
+        int_labels = tf.cast(labels, tf.int32)
+        sample_weights = tf.gather(class_weights, int_labels)
+    return sample_weights
 
 
 def weighted_logistic_loss(logits, labels, instance_weights):
@@ -129,6 +151,20 @@ class Gnet(object):
         self.labels, self.weights, self.det_gt_matching = \
             matching_module.detection_matching(
                 self.det_anno_iou, self.prediction, self.gt_crowd)
+
+        # class weighting
+        sample_class = tf.zeros(tf.shape(self.labels), dtype=tf.float32)
+        det_crowd = tf.cond(
+                tf.shape(self.gt_crowd)[0] > 0,
+                lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
+                lambda: tf.zeros(tf.shape(sample_class), dtype=tf.bool))
+        sample_class2 = tf.where(
+                tf.logical_and(self.det_gt_matching >= 0,
+                               tf.logical_not(det_crowd)),
+                tf.ones(tf.shape(sample_class)), sample_class)
+        sample_weight = get_sample_weights(2, sample_class2)
+        self.weights = self.weights * sample_weight
+
         logistic_loss = weighted_logistic_loss(
             self.prediction, self.labels, self.weights)
         self.loss = tf.reduce_sum(logistic_loss)
@@ -148,6 +184,12 @@ class Gnet(object):
             with tf.name_scope('build_context'):
                 c_feats = tf.gather(feats, pair_c_idxs)
                 n_feats = tf.gather(feats, pair_n_idxs)
+
+                # zero out features where c_idx == n_idx
+                is_id_row = tf.equal(pair_c_idxs, pair_n_idxs)
+                zeros = tf.zeros(tf.shape(n_feats), dtype=feats.dtype)
+                n_feats = tf.where(is_id_row, zeros, n_feats)
+
                 feats = tf.concat(1, [pw_feats, c_feats, n_feats])
 
             for i in range(1, params.num_block_pw_fc + 1):
@@ -160,20 +202,7 @@ class Gnet(object):
                         biases_initializer=biases_init)
 
             with tf.name_scope('pooling'):
-                # zero out features where c_idx == n_idx
-                is_id_row = tf.equal(pair_c_idxs, pair_n_idxs)
-                zeros = tf.zeros(tf.shape(feats), dtype=feats.dtype)
-                feats = tf.where(is_id_row, zeros, feats)
 
-                # before_pool_feats = tf.Variable(tf.zeros([1], dtype=feats.dtype),
-                #                                trainable=False, validate_shape=False)
-                # zero_idxs = tf.where(tf.equal(pair_c_idxs, pair_n_idxs))
-                # zero_idxs = tf.reshape(zero_idxs, [-1])
-
-                # zeros_shape = tf.pack([num_dets, tf.shape(feats)[1]])
-                # zeros = tf.zeros(zeros_shape, dtype=feats.dtype)
-                # feats = tf.assign(before_pool_feats, feats, validate_shape=False)
-                # feats = tf.scatter_update(feats, zero_idxs, zeros)
                 feats = tf.segment_max(feats, pair_c_idxs, name='max')
 
             for i in range(1, params.num_block_fc):

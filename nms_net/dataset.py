@@ -23,4 +23,5 @@ class Dataset(object):
         db_inds = self._perm[self._cur:self._cur + self._batch_size]
         self._cur += self._batch_size
         assert len(db_inds) == 1
-        return self._roidb[db_inds[0]]
+        roi = self._roidb[db_inds[0]]
+        return roi
