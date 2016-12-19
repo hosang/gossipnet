@@ -54,6 +54,7 @@ def only_keep_class(imdb, class_name):
             roi['dets'] = roi['dets'][mask].copy()
             roi['det_scores'] = roi['det_scores'][mask].copy()
 
+
 def print_stats(imdb):
     roidb = imdb['roidb']
     num_annos = 0
@@ -69,3 +70,8 @@ def print_stats(imdb):
     print('{} images: {} detections, {} crowd annotations, {} non-crowd annotations'.format(
         len(roidb), num_dets, num_crowd, num_annos))
 
+
+def get_avg_batch_size(imdb):
+    num_dets = sum(roi['dets'].shape[0] for roi in imdb['roidb'] if 'dets' in roi)
+    num_imgs = len(imdb['roidb'])
+    return num_dets / num_imgs

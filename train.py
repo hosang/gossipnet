@@ -49,7 +49,9 @@ def get_optimizer(loss_op):
 
 
 def load_and_enqueue(sess, enqueue_op, coord, dataset, placeholders):
-    while not coord.should_stop():
+    for _ in range(cfg.train.num_iter):
+        if coord.should_stop():
+            return
         batch = dataset.next_batch()
         food = {ph: batch[name] for (name, ph) in placeholders}
         sess.run(enqueue_op, feed_dict=food)
@@ -75,20 +77,21 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
         target=load_and_enqueue,
         args=(sess, enqueue_op, coord, dataset, placeholders))
     thread.start()
-    return coord, thread
+    coord.register_thread(thread)
+    return coord
 
 
 def get_dataset():
     train_imdb = imdb.get_imdb(cfg.train.imdb)
     # TODO(jhosang): print stats of the data
     imdb.prepro_train(train_imdb)
-    return Dataset(train_imdb, 1)
+    return Dataset(train_imdb, 1), train_imdb
 
 
 def train(device):
     np.random.seed(cfg.random_seed)
     with tf.device(device):
-        dataset = get_dataset()
+        dataset, train_imdb = get_dataset()
         preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
                 Gnet.batch_spec)
         reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
@@ -99,11 +102,12 @@ def train(device):
                 net.loss + tf.reduce_mean(reg_ops))
 
         ema = tf.train.ExponentialMovingAverage(decay=0.999)
-        maintain_averages_op = ema.apply([net.loss])
+        per_det_loss = net.loss / train_imdb['avg_num_dets']
+        maintain_averages_op = ema.apply([per_det_loss])
         # update moving averages after every loss evaluation
         with tf.control_dependencies([train_op]):
             train_op = tf.group(maintain_averages_op)
-        average_loss = ema.average(net.loss)
+        average_loss = ema.average(per_det_loss)
 
     saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
@@ -111,28 +115,31 @@ def train(device):
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
-        coord, prefetch_thread = start_preloading(
+        coord = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
 
         for it in range(1, cfg.train.num_iter + 1):
-            _, avg_loss, curr_loss = sess.run(
-                [train_op, average_loss, net.loss],
+            if coord.should_stop():
+                break
+
+            _, avg_loss = sess.run(
+                [train_op, average_loss],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
 
             if it % 20 == 0:
-                print('iter {}   lr {}   loss {} ({})'.format(
-                    it, lr_gen.get_lr(it), avg_loss, curr_loss))
+                print('iter {:6d}   lr {}   loss {}'.format(
+                    it, lr_gen.get_lr(it), avg_loss))
 
             if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
                 save_path = saver.save(sess, net.name, global_step=it)
                 print('wrote model to {}'.format(save_path))
 
-            # TODO(jhsoang): https://www.tensorflow.org/api_docs/python/summary/
-            # TODO(jhosang): save snapshot
+            # TODO(jhosang): https://www.tensorflow.org/api_docs/python/summary/
             # TODO(jhosang): eval run, produce mAP
             # TODO(jhosang): write best-model-symlink
-    coord.request_stop()
-    coord.join([prefetch_thread])
+        coord.request_stop()
+        coord.join()
+    print('training finished')
 
 
 def main():

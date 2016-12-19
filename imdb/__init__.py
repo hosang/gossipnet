@@ -28,7 +28,8 @@ for year in ['2015']:
 
 def get_imdb(name):
     # TODO(jhosang): add caching here
-    return _imdbs[name]()
+    result_imdb = _imdbs[name]()
+    return result_imdb
 
 
 def prepro_train(train_imdb):
@@ -42,5 +43,6 @@ def prepro_train(train_imdb):
     train_imdb['roidb'] = imdb.tools.drop_no_gt(train_imdb['roidb'])
     print('appending flipped images')
     train_imdb['roidb'] = imdb.tools.append_flipped(train_imdb['roidb'])
+    train_imdb['avg_num_dets'] = imdb.tools.get_avg_batch_size(train_imdb)
     imdb.tools.print_stats(train_imdb)
 

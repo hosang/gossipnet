@@ -204,7 +204,6 @@ class Gnet(object):
                         biases_initializer=biases_init)
 
             with tf.name_scope('pooling'):
-
                 feats = tf.segment_max(feats, pair_c_idxs, name='max')
 
             for i in range(1, params.num_block_fc):
