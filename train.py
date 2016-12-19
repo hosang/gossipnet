@@ -96,7 +96,8 @@ def train(device):
         preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
                 Gnet.batch_spec)
         reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
-        net = Gnet(batch=preloaded_batch, weight_reg=reg, **cfg.gnet)
+        net = Gnet(batch=preloaded_batch, weight_reg=reg,
+                   random_seed=cfg.random_seed, **cfg.gnet)
         lr_gen = LearningRate()
         reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         reg_op = tf.reduce_mean(reg_ops)
