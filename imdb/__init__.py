@@ -33,10 +33,10 @@ def get_imdb(name):
 
 def prepro_train(train_imdb):
     imdb.tools.print_stats(train_imdb)
-    if cfg.train.only_class is not None:
+    if cfg.train.only_class != '':
         print('dropping all classes but {}'.format(cfg.train.only_class))
         imdb.tools.only_keep_class(train_imdb, cfg.train.only_class)
-    print('dropping images without detection')
+    print('dropping images without detections')
     train_imdb['roidb'] = imdb.tools.drop_no_dets(train_imdb['roidb'])
     print('dropping images without annotations')
     train_imdb['roidb'] = imdb.tools.drop_no_gt(train_imdb['roidb'])

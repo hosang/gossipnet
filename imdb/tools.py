@@ -42,15 +42,17 @@ def only_keep_class(imdb, class_name):
 
     roidb = imdb['roidb']
     for roi in roidb:
-        mask = roi['gt_classes'] == cls_ind
-        roi['gt_classes'] = roi['gt_classes'][mask].copy()
-        roi['gt_boxes'] = roi['gt_boxes'][mask].copy()
-        roi['gt_crowd'] = roi['gt_crowd'][mask].copy()
+        if 'gt_classes' in roi:
+            mask = roi['gt_classes'] == cls_ind
+            roi['gt_classes'] = roi['gt_classes'][mask].copy()
+            roi['gt_boxes'] = roi['gt_boxes'][mask].copy()
+            roi['gt_crowd'] = roi['gt_crowd'][mask].copy()
 
-        mask = roi['det_classes'] == cls_ind
-        roi['det_classes'] = roi['det_classes'][mask].copy()
-        roi['dets'] = roi['dets'][mask].copy()
-        roi['det_scores'] = roi['det_scores'][mask].copy()
+        if 'det_classes' in roi:
+            mask = roi['det_classes'] == cls_ind
+            roi['det_classes'] = roi['det_classes'][mask].copy()
+            roi['dets'] = roi['dets'][mask].copy()
+            roi['det_scores'] = roi['det_scores'][mask].copy()
 
 def print_stats(imdb):
     roidb = imdb['roidb']

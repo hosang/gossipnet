@@ -24,8 +24,8 @@ cfg.train.lr_multi_step = [(40000, 0.01), (80000, 0.000001), (200000, 0.0000001)
 cfg.train.gradient_clipping = 1000.0
 cfg.train.detector = 'FRCN_person'
 cfg.train.flip = True
-cfg.train.only_class = None
-cfg.train.imdb = 'coco_2014_minival'
+cfg.train.only_class = ''
+cfg.train.imdb = 'coco_2014_train'
 cfg.train.pos_weight = 0.1
 
 # Gnet parameters
