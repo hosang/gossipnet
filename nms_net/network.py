@@ -78,6 +78,10 @@ class Gnet(object):
         'gt_boxes': (tf.float32, [None, 4]),
         'gt_crowd': (tf.bool, [None]),
     }
+    dets = None
+    det_scores = None
+    gt_boxes = None
+    gt_crowd = None
 
     def __init__(self, batch=None, weight_reg=None, **kwargs):
         self.params = GnetParams(**kwargs)
