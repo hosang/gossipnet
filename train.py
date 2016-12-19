@@ -98,27 +98,34 @@ def train(device):
         learning_rate, train_op = get_optimizer(
                 net.loss + tf.reduce_mean(reg_ops))
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.9999)
+        ema = tf.train.ExponentialMovingAverage(decay=0.999)
         maintain_averages_op = ema.apply([net.loss])
         # update moving averages after every loss evaluation
         with tf.control_dependencies([train_op]):
             train_op = tf.group(maintain_averages_op)
         average_loss = ema.average(net.loss)
 
+    saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
             allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         coord, prefetch_thread = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
 
         for it in range(1, cfg.train.num_iter + 1):
-            _, loss = sess.run(
-                [train_op, average_loss],
+            _, avg_loss, curr_loss = sess.run(
+                [train_op, average_loss, net.loss],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
 
             if it % 20 == 0:
-                print('iter {}   loss {}'.format(it, loss))
+                print('iter {}   lr {}   loss {} ({})'.format(
+                    it, lr_gen.get_lr(it), avg_loss, curr_loss))
+
+            if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
+                save_path = saver.save(sess, net.name, global_step=it)
+                print('wrote model to {}'.format(save_path))
 
             # TODO(jhsoang): https://www.tensorflow.org/api_docs/python/summary/
             # TODO(jhosang): save snapshot

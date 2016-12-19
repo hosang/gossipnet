@@ -71,6 +71,7 @@ class GnetParams(object):
 
 
 class Gnet(object):
+    name = 'gnet'
     batch_spec = {
         'dets': (tf.float32, [None, 4]),
         'det_scores': (tf.float32, [None]),
@@ -242,7 +243,6 @@ class Gnet(object):
 
         n_w = tf.gather(w, n_idxs)
         n_h = tf.gather(h, n_idxs)
-        n_scale = (n_w + n_h) / 2.0
         n_cx = tf.gather(x1, n_idxs) + n_w / 2.0
         n_cy = tf.gather(y1, n_idxs) + n_h / 2.0
 
