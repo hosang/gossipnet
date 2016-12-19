@@ -19,7 +19,7 @@ tf.NotDifferentiable("DetectionMatching")
 
 def get_sample_weights(num_classes, labels):
     pos_weight = cfg.train.pos_weight
-    with tf.name_scope('loss_weighting'):
+    with tf.variable_scope('loss_weighting'):
         exp_class_weights = tf.constant([1.0 - pos_weight] +
                 [pos_weight / (num_classes - 1)] * (num_classes - 1),
                 dtype=tf.float32)
@@ -96,20 +96,21 @@ class Gnet(object):
                 batch[name].set_shape(shape)
                 setattr(self, name, batch[name])
 
-        # generate useful box transformations (once)
-        self.dets_boxdata = self._xywh_to_boxdata(self.dets)
-        self.gt_boxdata = self._xywh_to_boxdata(self.gt_boxes)
+        with tf.variable_scope('preprocessing'):
+            # generate useful box transformations (once)
+            self.dets_boxdata = self._xywh_to_boxdata(self.dets)
+            self.gt_boxdata = self._xywh_to_boxdata(self.gt_boxes)
 
-        # overlaps
-        self.det_anno_iou = self._iou(
-            self.dets_boxdata, self.gt_boxdata, self.gt_crowd)
-        self.det_det_iou = self._iou(self.dets_boxdata, self.dets_boxdata)
+            # overlaps
+            self.det_anno_iou = self._iou(
+                self.dets_boxdata, self.gt_boxdata, self.gt_crowd)
+            self.det_det_iou = self._iou(self.dets_boxdata, self.dets_boxdata)
 
-        # find neighbors
-        self.neighbor_pair_idxs = tf.where(tf.greater_equal(
-            self.det_det_iou, params.neighbor_thresh))
-        pair_c_idxs = self.neighbor_pair_idxs[:, 0]
-        pair_n_idxs = self.neighbor_pair_idxs[:, 1]
+            # find neighbors
+            self.neighbor_pair_idxs = tf.where(tf.greater_equal(
+                self.det_det_iou, params.neighbor_thresh))
+            pair_c_idxs = self.neighbor_pair_idxs[:, 0]
+            pair_n_idxs = self.neighbor_pair_idxs[:, 1]
 
         # for now, start with zeros
         # TODO(jhosang): add image features here
@@ -138,14 +139,14 @@ class Gnet(object):
         # do prediction
         feats = self.block_feats[-1]
         for i in range(1, params.num_predict_fc):
-            with tf.name_scope('predict/fc{}'.format(i)):
+            with tf.variable_scope('predict/fc{}'.format(i)):
                 feats = tf.contrib.layers.fully_connected(
                     inputs=feats, num_outputs=params.predict_fc_dim,
                     activation_fn=None,
                     weights_initializer=weights_init,
                     biases_initializer=biases_init)
 
-        with tf.name_scope('predict/logits'):
+        with tf.variable_scope('predict/logits'):
             prediction = tf.contrib.layers.fully_connected(
                 inputs=feats, num_outputs=1,
                 activation_fn=None,
@@ -153,7 +154,7 @@ class Gnet(object):
                 biases_initializer=biases_init)
             self.prediction = tf.reshape(prediction, [-1])
 
-        with tf.name_scope('loss'):
+        with tf.variable_scope('loss'):
             # matching loss
             self.labels, self.weights, self.det_gt_matching = \
                 matching_module.detection_matching(
@@ -179,16 +180,16 @@ class Gnet(object):
     @staticmethod
     def _block(block_idx, params, infeats, weights_init, biases_init,
                pair_c_idxs, pair_n_idxs, pw_feats, weight_reg):
-        with tf.name_scope('block{}'.format(block_idx)):
-            with tf.name_scope('reduce_dim'):
-                feats = tf.contrib.layers.fully_connected(
-                    inputs=infeats, num_outputs=params.reduced_dim,
-                    activation_fn=tf.nn.relu,
-                    weights_initializer=weights_init,
-                    weights_regularizer=weight_reg,
-                    biases_initializer=biases_init)
+        with tf.variable_scope('block{}'.format(block_idx)):
+            feats = tf.contrib.layers.fully_connected(
+                inputs=infeats, num_outputs=params.reduced_dim,
+                activation_fn=tf.nn.relu,
+                weights_initializer=weights_init,
+                weights_regularizer=weight_reg,
+                biases_initializer=biases_init,
+                scope='reduce_dim')
 
-            with tf.name_scope('build_context'):
+            with tf.variable_scope('build_context'):
                 c_feats = tf.gather(feats, pair_c_idxs)
                 n_feats = tf.gather(feats, pair_n_idxs)
 
@@ -200,72 +201,75 @@ class Gnet(object):
                 feats = tf.concat(1, [pw_feats, c_feats, n_feats])
 
             for i in range(1, params.num_block_pw_fc + 1):
-                with tf.name_scope('pw_fc{}'.format(i)):
-                    feats = tf.contrib.layers.fully_connected(
-                        inputs=feats, num_outputs=params.pairfeat_dim,
-                        activation_fn=tf.nn.relu,
-                        weights_initializer=weights_init,
-                        weights_regularizer=weight_reg,
-                        biases_initializer=biases_init)
+                feats = tf.contrib.layers.fully_connected(
+                    inputs=feats, num_outputs=params.pairfeat_dim,
+                    activation_fn=tf.nn.relu,
+                    weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
+                    biases_initializer=biases_init,
+                    scope='pw_fc{}'.format(i))
 
-            with tf.name_scope('pooling'):
+            with tf.variable_scope('pooling'):
                 feats = tf.segment_max(feats, pair_c_idxs, name='max')
 
             for i in range(1, params.num_block_fc):
-                with tf.name_scope('fc{}'.format(i)):
-                    feats = tf.contrib.layers.fully_connected(
-                        inputs=feats, num_outputs=params.pairfeat_dim,
-                        activation_fn=tf.nn.relu,
-                        weights_initializer=weights_init,
-                        weights_regularizer=weight_reg,
-                        biases_initializer=biases_init)
-
-            with tf.name_scope('fc{}'.format(block_idx, params.num_block_fc)):
                 feats = tf.contrib.layers.fully_connected(
-                    inputs=feats, num_outputs=params.shortcut_dim,
-                    activation_fn=None,
+                    inputs=feats, num_outputs=params.pairfeat_dim,
+                    activation_fn=tf.nn.relu,
                     weights_initializer=weights_init,
                     weights_regularizer=weight_reg,
-                    biases_initializer=biases_init)
-            outfeats = tf.nn.relu(infeats + feats)
+                    biases_initializer=biases_init,
+                    scope='fc{}'.format(i))
+
+            feats = tf.contrib.layers.fully_connected(
+                inputs=feats, num_outputs=params.shortcut_dim,
+                activation_fn=None,
+                weights_initializer=weights_init,
+                weights_regularizer=weight_reg,
+                biases_initializer=biases_init,
+                scope='fc{}'.format(params.num_block_fc))
+
+            with tf.variable_scope('shortcut'):
+                outfeats = tf.nn.relu(infeats + feats)
         return outfeats
 
     def _geometry_feats(self, c_idxs, n_idxs):
-        det_scores = tf.expand_dims(self.det_scores, -1)
-        c_score = tf.gather(det_scores, c_idxs)
-        n_score = tf.gather(det_scores, n_idxs)
-        tmp_ious = tf.expand_dims(self.det_det_iou, -1)
-        ious = tf.gather_nd(tmp_ious, self.neighbor_pair_idxs)
+        with tf.variable_scope('pairwise_features'):
+            det_scores = tf.expand_dims(self.det_scores, -1)
+            c_score = tf.gather(det_scores, c_idxs)
+            n_score = tf.gather(det_scores, n_idxs)
+            tmp_ious = tf.expand_dims(self.det_det_iou, -1)
+            ious = tf.gather_nd(tmp_ious, self.neighbor_pair_idxs)
 
-        # TODO(jhosang): implement the rest of the pairwise features
-        x1, y1, w, h, _, _, _ = self.dets_boxdata
-        c_w = tf.gather(w, c_idxs)
-        c_h = tf.gather(h, c_idxs)
-        c_scale = (c_w + c_h) / 2.0
-        c_cx = tf.gather(x1, c_idxs) + c_w / 2.0
-        c_cy = tf.gather(y1, c_idxs) + c_h / 2.0
+            # TODO(jhosang): implement the rest of the pairwise features
+            x1, y1, w, h, _, _, _ = self.dets_boxdata
+            c_w = tf.gather(w, c_idxs)
+            c_h = tf.gather(h, c_idxs)
+            c_scale = (c_w + c_h) / 2.0
+            c_cx = tf.gather(x1, c_idxs) + c_w / 2.0
+            c_cy = tf.gather(y1, c_idxs) + c_h / 2.0
 
-        n_w = tf.gather(w, n_idxs)
-        n_h = tf.gather(h, n_idxs)
-        n_cx = tf.gather(x1, n_idxs) + n_w / 2.0
-        n_cy = tf.gather(y1, n_idxs) + n_h / 2.0
+            n_w = tf.gather(w, n_idxs)
+            n_h = tf.gather(h, n_idxs)
+            n_cx = tf.gather(x1, n_idxs) + n_w / 2.0
+            n_cy = tf.gather(y1, n_idxs) + n_h / 2.0
 
-        # normalized x, y distance
-        x_dist = (n_cx - c_cx)
-        y_dist = (n_cy - c_cy)
-        l2_dist = tf.sqrt(x_dist ** 2 + y_dist ** 2) / c_scale
-        x_dist /= c_scale
-        y_dist /= c_scale
+            # normalized x, y distance
+            x_dist = (n_cx - c_cx)
+            y_dist = (n_cy - c_cy)
+            l2_dist = tf.sqrt(x_dist ** 2 + y_dist ** 2) / c_scale
+            x_dist /= c_scale
+            y_dist /= c_scale
 
-        # scale difference
-        log2 = tf.constant(np.log(2.0), dtype=tf.float32)
-        w_diff = tf.log(n_w / c_w) / log2
-        h_diff = tf.log(n_h / c_h) / log2
-        aspect_diff = (tf.log(n_w / n_h) - tf.log(c_w / c_h)) / log2
+            # scale difference
+            log2 = tf.constant(np.log(2.0), dtype=tf.float32)
+            w_diff = tf.log(n_w / c_w) / log2
+            h_diff = tf.log(n_h / c_h) / log2
+            aspect_diff = (tf.log(n_w / n_h) - tf.log(c_w / c_h)) / log2
 
-        all = tf.concat(1, [c_score, n_score, ious, x_dist, y_dist, l2_dist,
-            w_diff, h_diff, aspect_diff])
-        return tf.stop_gradient(all)
+            all = tf.concat(1, [c_score, n_score, ious, x_dist, y_dist, l2_dist,
+                w_diff, h_diff, aspect_diff])
+            return tf.stop_gradient(all)
 
     @staticmethod
     def _zero_diagonal(a):
@@ -286,18 +290,19 @@ class Gnet(object):
 
     @staticmethod
     def _iou(a, b, crowd=None):
-        a_area = tf.reshape(a[6], [-1, 1])
-        b_area = tf.reshape(b[6], [1, -1])
-        intersection = Gnet._intersection(a, b)
-        union = tf.sub(tf.add(a_area, b_area), intersection)
-        iou = tf.div(intersection, union)
-        if crowd is None:
-            return iou
-        else:
-            ioa = tf.div(intersection, a_area)
-            crowd_multiple = tf.pack([tf.shape(a_area)[0], 1])
-            crowd = tf.tile(tf.reshape(crowd, [1, -1]), crowd_multiple, name='det_gt_crowd')
-            return tf.where(crowd, ioa, iou)
+        with tf.variable_scope('iou'):
+            a_area = tf.reshape(a[6], [-1, 1])
+            b_area = tf.reshape(b[6], [1, -1])
+            intersection = Gnet._intersection(a, b)
+            union = tf.sub(tf.add(a_area, b_area), intersection)
+            iou = tf.div(intersection, union)
+            if crowd is None:
+                return iou
+            else:
+                ioa = tf.div(intersection, a_area)
+                crowd_multiple = tf.pack([tf.shape(a_area)[0], 1])
+                crowd = tf.tile(tf.reshape(crowd, [1, -1]), crowd_multiple, name='det_gt_crowd')
+                return tf.where(crowd, ioa, iou)
 
     @staticmethod
     def _intersection(a, b):
