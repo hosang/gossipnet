@@ -153,27 +153,28 @@ class Gnet(object):
                 biases_initializer=biases_init)
             self.prediction = tf.reshape(prediction, [-1])
 
-        # matching loss
-        self.labels, self.weights, self.det_gt_matching = \
-            matching_module.detection_matching(
-                self.det_anno_iou, self.prediction, self.gt_crowd)
+        with tf.name_scope('loss'):
+            # matching loss
+            self.labels, self.weights, self.det_gt_matching = \
+                matching_module.detection_matching(
+                    self.det_anno_iou, self.prediction, self.gt_crowd)
 
-        # class weighting
-        sample_class = tf.zeros(tf.shape(self.labels), dtype=tf.float32)
-        det_crowd = tf.cond(
-                tf.shape(self.gt_crowd)[0] > 0,
-                lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
-                lambda: tf.zeros(tf.shape(sample_class), dtype=tf.bool))
-        sample_class2 = tf.where(
-                tf.logical_and(self.det_gt_matching >= 0,
-                               tf.logical_not(det_crowd)),
-                tf.ones(tf.shape(sample_class)), sample_class)
-        sample_weight = get_sample_weights(2, sample_class2)
-        self.weights = self.weights * sample_weight
+            # class weighting
+            sample_class = tf.zeros(tf.shape(self.labels), dtype=tf.float32)
+            det_crowd = tf.cond(
+                    tf.shape(self.gt_crowd)[0] > 0,
+                    lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
+                    lambda: tf.zeros(tf.shape(sample_class), dtype=tf.bool))
+            sample_class2 = tf.where(
+                    tf.logical_and(self.det_gt_matching >= 0,
+                                   tf.logical_not(det_crowd)),
+                    tf.ones(tf.shape(sample_class)), sample_class)
+            sample_weight = get_sample_weights(2, sample_class2)
+            self.weights = self.weights * sample_weight
 
-        logistic_loss = weighted_logistic_loss(
-            self.prediction, self.labels, self.weights)
-        self.loss = tf.reduce_sum(logistic_loss)
+            logistic_loss = weighted_logistic_loss(
+                self.prediction, self.labels, self.weights)
+            self.loss = tf.reduce_sum(logistic_loss)
 
     @staticmethod
     def _block(block_idx, params, infeats, weights_init, biases_init,
