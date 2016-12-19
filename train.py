@@ -89,6 +89,7 @@ def get_dataset():
 
 
 def train(device):
+    # TODO(jhosang): implement training resuming
     np.random.seed(cfg.random_seed)
     with tf.device(device):
         dataset, train_imdb = get_dataset()
@@ -98,22 +99,34 @@ def train(device):
         net = Gnet(batch=preloaded_batch, weight_reg=reg, **cfg.gnet)
         lr_gen = LearningRate()
         reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        learning_rate, train_op = get_optimizer(
-                net.loss + tf.reduce_mean(reg_ops))
+        reg_op = tf.reduce_mean(reg_ops)
+        optimized_loss = net.loss + reg_op
+        learning_rate, train_op = get_optimizer(optimized_loss)
 
         ema = tf.train.ExponentialMovingAverage(decay=0.999)
-        per_det_loss = net.loss / train_imdb['avg_num_dets']
-        maintain_averages_op = ema.apply([per_det_loss])
+        per_det_loss = optimized_loss / train_imdb['avg_num_dets']
+        per_det_data_loss = net.loss / train_imdb['avg_num_dets']
+        maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss])
         # update moving averages after every loss evaluation
         with tf.control_dependencies([train_op]):
             train_op = tf.group(maintain_averages_op)
         average_loss = ema.average(per_det_loss)
+        average_data_loss = ema.average(per_det_data_loss)
+
+    with tf.name_scope('summaries'):
+        tf.summary.scalar('loss', net.loss)
+        tf.summary.scalar('loss_per_det', per_det_loss)
+        tf.summary.scalar('data_loss_per_det', per_det_data_loss)
+        tf.summary.scalar('regularizer', reg_op)
+        tf.summary.scalar('lr', learning_rate)
+        merge_summaries_op = tf.summary.merge_all()
 
     saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
             allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
+        train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
         tf.global_variables_initializer().run()
         coord = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
@@ -122,19 +135,20 @@ def train(device):
             if coord.should_stop():
                 break
 
-            _, avg_loss = sess.run(
-                [train_op, average_loss],
+            _, avg_loss, avg_data_loss, reg_val, summary = sess.run(
+                [train_op, average_loss, average_data_loss, reg_op,
+                 merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
+            train_writer.add_summary(summary, it)
 
             if it % 20 == 0:
-                print('iter {:6d}   lr {}   loss {}'.format(
-                    it, lr_gen.get_lr(it), avg_loss))
+                print('iter {:6d}   lr {:8g}   loss {:8g} + {:8g} (reg) = {:8g}'.format(
+                    it, lr_gen.get_lr(it), avg_data_loss, reg_val, avg_loss))
 
             if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
                 save_path = saver.save(sess, net.name, global_step=it)
                 print('wrote model to {}'.format(save_path))
 
-            # TODO(jhosang): https://www.tensorflow.org/api_docs/python/summary/
             # TODO(jhosang): eval run, produce mAP
             # TODO(jhosang): write best-model-symlink
         coord.request_stop()

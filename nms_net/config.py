@@ -10,6 +10,7 @@ this_path = os.path.dirname(os.path.realpath(__file__))
 cfg = edict()
 cfg.random_seed = 42
 cfg.prefetch_q_size = 20
+cfg.log_dir = './log'
 cfg.ROOT_DIR = os.path.normpath(os.path.join(this_path, '..'))
 
 # training parameters
