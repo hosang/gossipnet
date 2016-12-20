@@ -2,6 +2,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os.path
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
 from imdb.coco import load_coco
 import imdb.tools
 from nms_net import cfg
@@ -27,8 +34,18 @@ for year in ['2015']:
 
 
 def get_imdb(name):
-    # TODO(jhosang): add caching here
+    cache_filename = os.path.join(
+        cfg.ROOT_DIR, 'data', 'cache',
+        '{}_{}_imdb_cache.pkl'.format(name, cfg.train.detector))
+    if os.path.exists(cache_filename):
+        print('reading {}'.format(cache_filename))
+        with open(cache_filename, 'rb') as fp:
+            return pickle.load(fp)
+
     result_imdb = _imdbs[name]()
+    with open(cache_filename, 'wb') as fp:
+        pickle.dump(result_imdb, fp)
+    print('wrote {}'.format(cache_filename))
     return result_imdb
 
 
