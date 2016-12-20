@@ -47,7 +47,7 @@ def load_coco(split, year):
         roidb = merge_roidbs(roidb, gt_roidb)
 
     print('loading detections')
-    det_roidb = load_detections(name, cfg.train.detector, cat_id_to_class_ind)
+    det_roidb = load_detections(coco, name, cfg.train.detector, cat_id_to_class_ind)
     roidb = merge_roidbs(roidb, det_roidb)
 
     imdb = {
@@ -60,7 +60,7 @@ def load_coco(split, year):
     return imdb
 
 
-def load_detections(imdb_name, detector, cat_id_to_class_ind):
+def load_detections(coco, imdb_name, detector, cat_id_to_class_ind):
     filename = os.path.join(cfg.ROOT_DIR, 'data',
                             '{}_{}.pkl'.format(imdb_name, detector))
     with open(filename, 'rb') as fp:
@@ -73,7 +73,8 @@ def load_detections(imdb_name, detector, cat_id_to_class_ind):
         scores = []
         for cat_i, cat_id in enumerate(cat_ids):
             t_dets = dets[cat_i][i]
-            if t_dets.size == 0: continue
+            if t_dets.size == 0:
+                continue
             n = t_dets.shape[0]
             cls_ind = cat_id_to_class_ind[cat_id]
             cls.append(np.zeros((n,), dtype=np.int32) + cls_ind)
@@ -82,6 +83,11 @@ def load_detections(imdb_name, detector, cat_id_to_class_ind):
         cls = np.concatenate(cls, axis=0)
         scores = np.concatenate(scores, axis=0)
         imdets = np.concatenate(imdets, axis=0)
+
+        im_info = coco.loadImgs(imid)[0]
+        width = im_info['width']
+        height = im_info['height']
+        validate_boxes(imdets, width=width, height=height)
 
         roidb.append({
             'id': imid,
@@ -157,8 +163,8 @@ def sanitize_anno_bboxes(objs, width, height):
     for obj in objs:
         x1 = max(0, obj['bbox'][0])
         y1 = max(0, obj['bbox'][1])
-        x2 = min(width, x1 + max(0, obj['bbox'][2] - 1))
-        y2 = min(height, y1 + max(0, obj['bbox'][3] - 1))
+        x2 = min(width, x1 + max(0, obj['bbox'][2]))
+        y2 = min(height, y1 + max(0, obj['bbox'][3]))
         if obj['area'] > 0 and x2 >= x1 and y2 >= y1:
             obj['clean_bbox'] = [x1, y1, x2, y2]
             valid_objs.append(obj)
