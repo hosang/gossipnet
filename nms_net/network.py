@@ -98,8 +98,8 @@ class Gnet(object):
 
         with tf.variable_scope('preprocessing'):
             # generate useful box transformations (once)
-            self.dets_boxdata = self._xywh_to_boxdata(self.dets)
-            self.gt_boxdata = self._xywh_to_boxdata(self.gt_boxes)
+            self.dets_boxdata = self._xyxy_to_boxdata(self.dets)
+            self.gt_boxdata = self._xyxy_to_boxdata(self.gt_boxes)
 
             # overlaps
             self.det_anno_iou = self._iou(
@@ -278,13 +278,14 @@ class Gnet(object):
         return tf.matrix_set_diag(a, z)
 
     @staticmethod
-    def _xywh_to_boxdata(a):
-        ax1 = tf.slice(a, [0, 0], [-1, 1])
-        ay1 = tf.slice(a, [0, 1], [-1, 1])
-        aw = tf.slice(a, [0, 2], [-1, 1])
-        ah = tf.slice(a, [0, 3], [-1, 1])
-        ax2 = tf.add(ax1, aw)
-        ay2 = tf.add(ay1, ah)
+    def _xyxy_to_boxdata(a):
+        ax1 = tf.slice(a, [0, 0], [-1, 1])  # a[:, 0]
+        ay1 = tf.slice(a, [0, 1], [-1, 1])  # a[:, 1]
+        ax2 = tf.slice(a, [0, 2], [-1, 1])  # a[:, 2]
+        ay2 = tf.slice(a, [0, 3], [-1, 1])  # a[:, 3]
+        aw = ax2 - ax1
+        ah = ay2 - ay1
+
         area = tf.mul(aw, ah)
         return (ax1, ay1, aw, ah, ax2, ay2, area)
 
