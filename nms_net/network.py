@@ -166,7 +166,7 @@ class Gnet(object):
                     tf.shape(self.gt_crowd)[0] > 0,
                     lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
                     lambda: tf.zeros(tf.shape(sample_class), dtype=tf.bool))
-            sample_class2 = tf.where(
+            sample_class2 = tf.select(
                     tf.logical_and(self.det_gt_matching >= 0,
                                    tf.logical_not(det_crowd)),
                     tf.ones(tf.shape(sample_class)), sample_class)
@@ -196,7 +196,7 @@ class Gnet(object):
                 # zero out features where c_idx == n_idx
                 is_id_row = tf.equal(pair_c_idxs, pair_n_idxs)
                 zeros = tf.zeros(tf.shape(n_feats), dtype=feats.dtype)
-                n_feats = tf.where(is_id_row, zeros, n_feats)
+                n_feats = tf.select(is_id_row, zeros, n_feats)
 
                 feats = tf.concat(1, [pw_feats, c_feats, n_feats])
 
@@ -303,7 +303,7 @@ class Gnet(object):
                 ioa = tf.div(intersection, a_area)
                 crowd_multiple = tf.pack([tf.shape(a_area)[0], 1])
                 crowd = tf.tile(tf.reshape(crowd, [1, -1]), crowd_multiple, name='det_gt_crowd')
-                return tf.where(crowd, ioa, iou)
+                return tf.select(crowd, ioa, iou)
 
     @staticmethod
     def _intersection(a, b):

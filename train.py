@@ -88,31 +88,60 @@ def get_dataset():
     return Dataset(train_imdb, 1), train_imdb
 
 
+def validation(net):
+    valset = get_dataset(cfg.train.val_imdb, one_pass=True)
+    all_labels = []
+    all_scores = []
+    num_objs = sum(np.sum(np.logical_not(roi['gt_crowd']))
+                   for roi in val_imdb['roidb'])
+    for i in range(len(valset['roidb'])):
+        weights, labels, scores = sess.run(
+                [net.weights, net.labels, net.predictions])
+        # filter out ignored detections
+        mask = weights > 0.0
+        all_labels.append(labels[mask])
+        all_scores.append(scores[mask])
+
+    scores = np.concatenate(all_scores, axis=0)
+    labels = np.concatenate(all_labels, axis=0)
+    ord = np.argsort(-scores)
+    scores = scores[ord]
+    labels = labels[ord]
+    fp = np.astype(np.cumsum(np.astype(labels == 0, dtype=np.int32)), dtype=np.float32)
+    tp = np.astype(np.cumsum(np.astype(labels == 1, dtype=np.int32)), dtype=np.float32)
+    recall = tp / num_objs
+    precision = tp / (fp + tp)
+    for i in range(precision.size - 2, -1, -1):
+        precision[i] = max(precision[i], precision[i + 1])
+
+
 def train(device):
     # TODO(jhosang): implement training resuming
     np.random.seed(cfg.random_seed)
-    with tf.device(device):
-        dataset, train_imdb = get_dataset()
-        preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
-                Gnet.batch_spec)
-        reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
-        net = Gnet(batch=preloaded_batch, weight_reg=reg,
-                   random_seed=cfg.random_seed, **cfg.gnet)
-        lr_gen = LearningRate()
-        reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        reg_op = tf.reduce_mean(reg_ops)
-        optimized_loss = net.loss + reg_op
-        learning_rate, train_op = get_optimizer(optimized_loss)
+    # with tf.device(device):
+    dataset, train_imdb = get_dataset()
+    preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
+            Gnet.batch_spec)
+    reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
+    net = Gnet(batch=preloaded_batch, weight_reg=reg,
+               random_seed=cfg.random_seed, **cfg.gnet)
+    lr_gen = LearningRate()
+    reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    reg_op = tf.reduce_mean(reg_ops)
+    optimized_loss = net.loss + reg_op
+    learning_rate, train_op = get_optimizer(optimized_loss)
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.999)
-        per_det_loss = optimized_loss / train_imdb['avg_num_dets']
-        per_det_data_loss = net.loss / train_imdb['avg_num_dets']
-        maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss])
-        # update moving averages after every loss evaluation
-        with tf.control_dependencies([train_op]):
-            train_op = tf.group(maintain_averages_op)
-        average_loss = ema.average(per_det_loss)
-        average_data_loss = ema.average(per_det_data_loss)
+    ema = tf.train.ExponentialMovingAverage(decay=0.999)
+    per_det_loss = optimized_loss / train_imdb['avg_num_dets']
+    per_det_data_loss = net.loss / train_imdb['avg_num_dets']
+    per_det_loss.set_shape([])
+    per_det_data_loss.set_shape([])
+    maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss])
+    # update moving averages after every loss evaluation
+    with tf.control_dependencies([train_op]):
+        train_op = tf.group(maintain_averages_op)
+    average_loss = ema.average(per_det_loss)
+    average_data_loss = ema.average(per_det_data_loss)
 
     with tf.name_scope('summaries'):
         tf.summary.scalar('loss', net.loss)
@@ -120,15 +149,22 @@ def train(device):
         tf.summary.scalar('data_loss_per_det', per_det_data_loss)
         tf.summary.scalar('regularizer', reg_op)
         tf.summary.scalar('lr', learning_rate)
-        merge_summaries_op = tf.summary.merge_all()
+        if tf.__version__.startswith('0.11'):
+            merge_summaries_op = tf.merge_all_summaries()
+        else:
+            merge_summaries_op = tf.summary.merge_all()
 
     saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
             allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
-        train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
-        tf.global_variables_initializer().run()
+        if tf.__version__.startswith('0.11'):
+            train_writer = tf.train.SummaryWriter(cfg.log_dir, sess.graph)
+            tf.initialize_all_variables().run()
+        else:
+            train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
+            tf.global_variables_initializer().run()
         coord = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
 
