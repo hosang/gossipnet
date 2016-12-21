@@ -40,6 +40,9 @@ def only_keep_class(imdb, class_name):
     class_to_ind = imdb['class_to_ind']
     cls_ind = class_to_ind[class_name]
 
+    imdb['classes'] = (imdb['classes'][0], imdb['classes'][cls_ind])
+    imdb['class_to_ind'] = {cl: ind for ind, cl in enumerate(imdb['classes'])}
+
     roidb = imdb['roidb']
     for roi in roidb:
         if 'gt_classes' in roi:
