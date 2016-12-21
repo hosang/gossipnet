@@ -30,6 +30,10 @@ cfg.train.only_class = ''
 cfg.train.imdb = 'coco_2014_train'
 cfg.train.pos_weight = 0.1
 
+# test parameters
+cfg.test = edict()
+cfg.test.imdb = 'coco_2014_minival'
+
 # Gnet parameters
 cfg.gnet = edict()
 cfg.gnet.neighbor_thresh = 0.2
