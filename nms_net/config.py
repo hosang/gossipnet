@@ -12,6 +12,16 @@ cfg.random_seed = 42
 cfg.prefetch_q_size = 20
 cfg.log_dir = './log'
 cfg.ROOT_DIR = os.path.normpath(os.path.join(this_path, '..'))
+cfg.resnet_type = '50'
+cfg.imfeat_crop_width = 7
+cfg.imfeat_crop_height = 7
+cfg.pixel_mean = [123.68, 116.779, 103.939]
+
+# resize the image, so the shorter side becomes `image_target_size`
+cfg.image_target_size = 600
+# resize the image, so the longer side is not longer than `image_max_size`
+cfg.image_max_size = 1000
+
 
 # training parameters
 cfg.train = edict()
@@ -29,6 +39,8 @@ cfg.train.flip = True
 cfg.train.only_class = ''
 cfg.train.imdb = 'coco_2014_train'
 cfg.train.pos_weight = 0.1
+cfg.train.pretrained_model = ''
+cfg.train.display_iter = 20
 
 # test parameters
 cfg.test = edict()
@@ -40,13 +52,14 @@ cfg.gnet.neighbor_thresh = 0.2
 cfg.gnet.shortcut_dim = 128
 cfg.gnet.num_blocks = 16
 cfg.gnet.reduced_dim = 32
-cfg.gnet.pairfeat_dim = None
+cfg.gnet.pairfeat_dim = 2 * 32
 cfg.gnet.gt_match_thresh = 0.5
 cfg.gnet.num_block_pw_fc = 2
 cfg.gnet.num_block_fc = 2
 cfg.gnet.num_predict_fc = 3
-cfg.gnet.block_dim = None
-cfg.gnet.predict_fc_dim = None
+cfg.gnet.block_dim = 2 * 32
+cfg.gnet.predict_fc_dim = 128
+cfg.gnet.imfeats = False
 
 
 def _merge_a_into_b(a, b):

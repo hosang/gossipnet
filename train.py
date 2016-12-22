@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import argparse
 import threading
+from pprint import pprint
 
 import numpy as np
 import tensorflow as tf
@@ -24,6 +25,8 @@ class LearningRate(object):
         self.current_step = 0
 
     def get_lr(self, iter):
+        if self.current_step >= len(self.steps):
+            return self.steps[-1][1]
         lr = self.steps[self.current_step][1]
         if iter == self.steps[self.current_step][0]:
             self.current_step += 1
@@ -85,7 +88,7 @@ def get_dataset():
     train_imdb = imdb.get_imdb(cfg.train.imdb)
     # TODO(jhosang): print stats of the data
     imdb.prepro_train(train_imdb)
-    return Dataset(train_imdb, 1), train_imdb
+    return Dataset(train_imdb, 1, cfg.gnet.imfeats), train_imdb
 
 
 def validation(net):
@@ -121,43 +124,54 @@ def train(device):
     # with tf.device(device):
     dataset, train_imdb = get_dataset()
     preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
-            Gnet.batch_spec)
+            Gnet.get_batch_spec())
     reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
-    net = Gnet(batch=preloaded_batch, weight_reg=reg,
-               random_seed=cfg.random_seed, **cfg.gnet)
+    net = Gnet(batch=preloaded_batch, weight_reg=reg)
     lr_gen = LearningRate()
-    reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    reg_op = tf.reduce_mean(reg_ops)
-    optimized_loss = net.loss + reg_op
+    # reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    # reg_op = tf.reduce_mean(reg_ops)
+    # optimized_loss = net.loss + reg_op
+    optimized_loss = tf.contrib.losses.get_total_loss()
     learning_rate, train_op = get_optimizer(optimized_loss)
+    print(tf.contrib.losses.get_losses())
 
     ema = tf.train.ExponentialMovingAverage(decay=0.999)
-    per_det_loss = optimized_loss / train_imdb['avg_num_dets']
-    per_det_data_loss = net.loss / train_imdb['avg_num_dets']
+    num_dets_float = tf.cast(net.num_dets, tf.float32)
+    per_det_loss = optimized_loss / num_dets_float
+    per_det_data_loss = net.loss / num_dets_float
     per_det_loss.set_shape([])
     per_det_data_loss.set_shape([])
-    maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss])
+    maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss, optimized_loss])
     # update moving averages after every loss evaluation
     with tf.control_dependencies([train_op]):
         train_op = tf.group(maintain_averages_op)
     average_loss = ema.average(per_det_loss)
     average_data_loss = ema.average(per_det_data_loss)
+    smoothed_optimized_loss = ema.average(optimized_loss)
 
     with tf.name_scope('summaries'):
         tf.summary.scalar('loss', net.loss)
         tf.summary.scalar('loss_per_det', per_det_loss)
         tf.summary.scalar('data_loss_per_det', per_det_data_loss)
-        tf.summary.scalar('regularizer', reg_op)
+        # tf.summary.scalar('regularizer', reg_op)
         tf.summary.scalar('lr', learning_rate)
         if tf.__version__.startswith('0.11'):
             merge_summaries_op = tf.merge_all_summaries()
         else:
             merge_summaries_op = tf.summary.merge_all()
 
+    if cfg.gnet.imfeats:
+        variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
+        variables_to_exclude = \
+            slim.get_variables_by_suffix('Adam_1', scope='resnet_v1') + \
+            slim.get_variables_by_suffix('Adam', scope='resnet_v1')
+        restorer = tf.train.Saver(
+            list(set(variables_to_restore) - set(variables_to_exclude)))
+
     saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
             allow_soft_placement=True)
-    config.gpu_options.allow_growth = True
+    # config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         if tf.__version__.startswith('0.11'):
             train_writer = tf.train.SummaryWriter(cfg.log_dir, sess.graph)
@@ -165,22 +179,25 @@ def train(device):
         else:
             train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
             tf.global_variables_initializer().run()
+            tf.local_variables_initializer().run()
         coord = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
+        if cfg.gnet.imfeats:
+            restorer.restore(sess, cfg.train.pretrained_model)
 
         for it in range(1, cfg.train.num_iter + 1):
             if coord.should_stop():
                 break
 
-            _, avg_loss, avg_data_loss, reg_val, summary = sess.run(
-                [train_op, average_loss, average_data_loss, reg_op,
+            _, total_loss_val, avg_loss, avg_data_loss, summary = sess.run(
+                [train_op, optimized_loss, average_loss, average_data_loss,
                  merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)
 
-            if it % 20 == 0:
-                print('iter {:6d}   lr {:8g}   loss {:8g} + {:8g} (reg) = {:8g}'.format(
-                    it, lr_gen.get_lr(it), avg_data_loss, reg_val, avg_loss))
+            if it % cfg.train.display_iter == 0:
+                print('iter {:6d}   lr {:8g}   opt loss {:8g}   smoothed loss/det {:8g} + (reg) = {:8g}'.format(
+                    it, lr_gen.get_lr(it), total_loss_val, avg_data_loss, avg_loss))
 
             if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
                 save_path = saver.save(sess, net.name, global_step=it)
@@ -202,6 +219,7 @@ def main():
     args, unparsed = parser.parse_known_args()
 
     cfg_from_file(args.config)
+    pprint(cfg)
 
     if args.cpu:
         device = '/cpu'

@@ -23,7 +23,8 @@ from nms_net import cfg
 _imdbs = {}
 
 for year in ['2014']:
-    for split in ['train', 'val', 'minival', 'valminusminival', 'minival2']:
+    for split in ['train', 'val', 'minival', 'valminusminival', 'minival2',
+                  'debug']:
         name = 'coco_{}_{}'.format(year, split)
         _imdbs[name] = lambda split=split, year=year: load_coco(split, year)
 

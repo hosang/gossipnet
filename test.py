@@ -27,7 +27,7 @@ def test_run(device, test_imdb):
     roidb = test_imdb['roidb']
 
     with tf.device(device):
-        net = Gnet(**cfg.gnet)
+        net = Gnet()
 
     output_detections = []
     restorer = tf.train.Saver()

@@ -39,7 +39,13 @@ def load_coco(split, year):
     cat_id_to_class_ind = {class_to_cat_id[cls]: class_to_ind[cls]
                            for cls in classes[1:]}
 
-    roidb = load_im_info(coco)
+    path_to_images = {
+        'coco_2014_train': 'train2014',
+        'coco_2014_debug': 'train2014',
+        'coco_2014_val': 'val2014',
+        'coco_2014_minival': 'val2014',
+    }
+    roidb = load_im_info(coco, path_to_images[name])
     # gt_splits = {'train', 'val', 'minival', 'minival2'}
     if has_gt:
         print('converting annotations')
@@ -108,17 +114,18 @@ def merge_roidbs(roidb_a, roidb_b):
     return roidb_a
 
 
-def load_im_info(coco):
+def load_im_info(coco, path_to_images):
     image_ids = coco.getImgIds()
     roidb = []
     for image_id in image_ids:
         im_info = coco.loadImgs(image_id)[0]
+        filename = os.path.join(cfg.ROOT_DIR, 'data', 'coco', 'images',
+                                path_to_images, im_info['file_name'])
         roidb.append({
             'id': im_info['id'],
             'width': im_info['width'],
             'height': im_info['height'],
-            # TODO(hosang): turn this into an absolute path?
-            'filename': im_info['file_name'],
+            'filename': filename,
             'flipped': False,
         })
     return roidb
