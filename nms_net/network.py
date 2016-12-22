@@ -73,8 +73,8 @@ def enlarge_windows_convert_relative(boxdata, hw, padding=0.5):
     x1, y1, w, h, x2, y2, _ = boxdata
     cx = (x1 + x2 - 1) / 2.0
     cy = (y1 + y2 - 1) / 2.0
-    nw2 = w * padding
-    nh2 = h * padding
+    nw2 = w * (0.5 + padding)
+    nh2 = h * (0.5 + padding)
 
     # tensorflow wants relative coordinates
     new_yxyx = tf.concat(1, [cy - nh2, cx - nw2, cy + nh2 + 1, cx + nw2 + 1])
