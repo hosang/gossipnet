@@ -133,7 +133,6 @@ def train(device):
     # optimized_loss = net.loss + reg_op
     optimized_loss = tf.contrib.losses.get_total_loss()
     learning_rate, train_op = get_optimizer(optimized_loss)
-    print(tf.contrib.losses.get_losses())
 
     ema = tf.train.ExponentialMovingAverage(decay=0.999)
     num_dets_float = tf.cast(net.num_dets, tf.float32)
@@ -155,16 +154,14 @@ def train(device):
         tf.summary.scalar('data_loss_per_det', per_det_data_loss)
         # tf.summary.scalar('regularizer', reg_op)
         tf.summary.scalar('lr', learning_rate)
-        if tf.__version__.startswith('0.11'):
-            merge_summaries_op = tf.merge_all_summaries()
-        else:
-            merge_summaries_op = tf.summary.merge_all()
+        merge_summaries_op = tf.summary.merge_all()
 
     if cfg.gnet.imfeats:
         variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
         variables_to_exclude = \
             slim.get_variables_by_suffix('Adam_1', scope='resnet_v1') + \
-            slim.get_variables_by_suffix('Adam', scope='resnet_v1')
+            slim.get_variables_by_suffix('Adam', scope='resnet_v1') + \
+            slim.get_variables_by_suffix('Momentum', scope='resnet_v1')
         restorer = tf.train.Saver(
             list(set(variables_to_restore) - set(variables_to_exclude)))
 
@@ -173,13 +170,9 @@ def train(device):
             allow_soft_placement=True)
     # config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
-        if tf.__version__.startswith('0.11'):
-            train_writer = tf.train.SummaryWriter(cfg.log_dir, sess.graph)
-            tf.initialize_all_variables().run()
-        else:
-            train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
-            tf.global_variables_initializer().run()
-            tf.local_variables_initializer().run()
+        train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
+        tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
         coord = start_preloading(
             sess, enqueue_op, dataset, enqueue_placeholders)
         if cfg.gnet.imfeats:
@@ -190,7 +183,7 @@ def train(device):
                 break
 
             _, total_loss_val, avg_loss, avg_data_loss, summary = sess.run(
-                [train_op, optimized_loss, average_loss, average_data_loss,
+                [train_op, smoothed_optimized_loss, average_loss, average_data_loss,
                  merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)

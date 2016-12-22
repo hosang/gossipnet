@@ -116,16 +116,19 @@ class Gnet(object):
         return batch_spec
 
     def __init__(self, batch=None, weight_reg=None):
-        with tf.variable_scope('gnet'):
-            # inputs
-            if batch is None:
-                for name, (dtype, shape) in self.get_batch_spec().items():
-                    setattr(self, name, tf.placeholder(dtype, shape=shape))
-            else:
-                for name, (dtype, shape) in self.get_batch_spec().items():
-                    batch[name].set_shape(shape)
-                    setattr(self, name, batch[name])
+        # inputs
+        if batch is None:
+            for name, (dtype, shape) in self.get_batch_spec().items():
+                setattr(self, name, tf.placeholder(dtype, shape=shape))
+        else:
+            for name, (dtype, shape) in self.get_batch_spec().items():
+                batch[name].set_shape(shape)
+                setattr(self, name, batch[name])
 
+        if cfg.gnet.imfeats:
+            self.imfeats = get_resnet(self.image)
+
+        with tf.variable_scope('gnet'):
             with tf.variable_scope('preprocessing'):
                 # generate useful box transformations (once)
                 self.dets_boxdata = self._xyxy_to_boxdata(self.dets)
@@ -152,24 +155,22 @@ class Gnet(object):
 
             self.num_dets = tf.shape(self.dets)[0]
 
-        if cfg.gnet.imfeats:
-            self.imfeats = get_resnet(self.image)
-            self.det_imfeats = crop_windows(self.imfeats, self.dets_boxdata)
-            self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
-            with tf.variable_scope('reduce_imfeats'):
-                start_feat = tf.contrib.layers.fully_connected(
-                    inputs=self.det_imfeats, num_outputs=cfg.gnet.shortcut_dim,
-                    activation_fn=None,
-                    weights_initializer=weights_init,
-                    biases_initializer=biases_init)
-        else:
-            with tf.variable_scope('gnet'):
-                shortcut_shape = tf.pack([self.num_dets, cfg.gnet.shortcut_dim])
-                start_feat = tf.zeros(shortcut_shape, dtype=tf.float32)
-        self.block_feats = []
-        self.block_feats.append(start_feat)
+            if cfg.gnet.imfeats:
+                self.det_imfeats = crop_windows(self.imfeats, self.dets_boxdata)
+                self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
+                with tf.variable_scope('reduce_imfeats'):
+                    start_feat = tf.contrib.layers.fully_connected(
+                        inputs=self.det_imfeats, num_outputs=cfg.gnet.shortcut_dim,
+                        activation_fn=None,
+                        weights_initializer=weights_init,
+                        biases_initializer=biases_init)
+            else:
+                with tf.variable_scope('gnet'):
+                    shortcut_shape = tf.pack([self.num_dets, cfg.gnet.shortcut_dim])
+                    start_feat = tf.zeros(shortcut_shape, dtype=tf.float32)
+            self.block_feats = []
+            self.block_feats.append(start_feat)
 
-        with tf.variable_scope('gnet'):
             # stack the blocks
             for block_idx in range(1, cfg.gnet.num_blocks + 1):
                 outfeats = self._block(
