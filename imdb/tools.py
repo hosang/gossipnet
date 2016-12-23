@@ -7,8 +7,8 @@ import numpy as np
 
 def append_flipped(roidb):
     def flip(boxes, width):
-        oldx1 = boxes[:, 0]
-        oldx2 = boxes[:, 2]
+        oldx1 = boxes[:, 0].copy()
+        oldx2 = boxes[:, 2].copy()
         boxes[:, 0] = width - oldx2
         boxes[:, 2] = width - oldx1
         return boxes
@@ -23,11 +23,12 @@ def append_flipped(roidb):
             froi['dets'] = flip(roi['dets'].copy(), width)
         if 'gt_boxes' in roi:
             froi['gt_boxes'] = flip(roi['gt_boxes'].copy(), width)
+        flipped.append(froi)
     return roidb + flipped
 
 
 def drop_no_dets(roidb):
-    res = [roi for roi in roidb if 'dets' in roi]
+    res = [roi for roi in roidb if 'dets' in roi and roi['dets'].size > 0]
     return res
 
 
@@ -42,20 +43,22 @@ def only_keep_class(imdb, class_name):
 
     imdb['classes'] = (imdb['classes'][0], imdb['classes'][cls_ind])
     imdb['class_to_ind'] = {cl: ind for ind, cl in enumerate(imdb['classes'])}
+    imdb['num_classes'] = 1
 
     roidb = imdb['roidb']
     for roi in roidb:
         if 'gt_classes' in roi:
             mask = roi['gt_classes'] == cls_ind
             roi['gt_classes'] = roi['gt_classes'][mask].copy()
-            roi['gt_boxes'] = roi['gt_boxes'][mask].copy()
+            roi['gt_boxes'] = roi['gt_boxes'][mask, :].copy()
             roi['gt_crowd'] = roi['gt_crowd'][mask].copy()
 
         if 'det_classes' in roi:
             mask = roi['det_classes'] == cls_ind
             roi['det_classes'] = roi['det_classes'][mask].copy()
-            roi['dets'] = roi['dets'][mask].copy()
+            roi['dets'] = roi['dets'][mask, :].copy()
             roi['det_scores'] = roi['det_scores'][mask].copy()
+            validate_boxes(roi['dets'], width=roi['width'], height=roi['height'])
 
 
 def print_stats(imdb):
@@ -78,3 +81,17 @@ def get_avg_batch_size(imdb):
     num_dets = sum(roi['dets'].shape[0] for roi in imdb['roidb'] if 'dets' in roi)
     num_imgs = len(imdb['roidb'])
     return num_dets / num_imgs
+
+
+def validate_boxes(boxes, width=0, height=0):
+    """Check that a set of boxes are valid."""
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    assert (x1 >= 0).all()
+    assert (y1 >= 0).all()
+    assert (x2 >= x1 + 1).all()
+    assert (y2 >= y1 + 1).all()
+    assert (x2 <= width).all()
+    assert (y2 <= height).all()

@@ -25,9 +25,10 @@ from nms_net.network import Gnet
 
 def test_run(device, test_imdb):
     roidb = test_imdb['roidb']
+    batch_spec = Gnet.get_batch_spec(num_classes=test_imdb['num_classes'])
 
     with tf.device(device):
-        net = Gnet()
+        net = Gnet(num_classes=test_imdb['num_classes'])
 
     output_detections = []
     restorer = tf.train.Saver()
@@ -41,7 +42,7 @@ def test_run(device, test_imdb):
             if 'dets' not in roi or roi['dets'].size == 0:
                 continue
             feed_dict = {getattr(net, name): roi[name]
-                         for name in net.get_batch_spec().keys()}
+                         for name in batch_spec.keys()}
             new_scores = sess.run(net.prediction, feed_dict=feed_dict)
 
             output_detections.append({

@@ -63,7 +63,6 @@ def load_and_enqueue(sess, enqueue_op, coord, dataset, placeholders):
 def setup_preloading(batch_spec):
     spec = list(batch_spec.items())
     dtypes = [dtype for _, (dtype, _) in spec]
-    shapes = [shape for _, (_, shape) in spec]
     enqueue_placeholders = [(name, tf.placeholder(dtype, shape=shape))
                             for name, (dtype, shape) in spec]
     q = tf.FIFOQueue(cfg.prefetch_q_size, dtypes)
@@ -124,9 +123,10 @@ def train(device):
     # with tf.device(device):
     dataset, train_imdb = get_dataset()
     preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
-            Gnet.get_batch_spec())
+            Gnet.get_batch_spec(train_imdb['num_classes']))
     reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
-    net = Gnet(batch=preloaded_batch, weight_reg=reg)
+    net = Gnet(num_classes=train_imdb['num_classes'], batch=preloaded_batch,
+               weight_reg=reg)
     lr_gen = LearningRate()
     # reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     # reg_op = tf.reduce_mean(reg_ops)
@@ -182,9 +182,17 @@ def train(device):
             if coord.should_stop():
                 break
 
-            _, total_loss_val, avg_loss, avg_data_loss, summary = sess.run(
+            # iou, pair_idxs, dets = sess.run([net.det_det_iou, net.neighbor_pair_idxs,
+            #                            net.dets],
+            #     feed_dict={learning_rate: lr_gen.get_lr(it)})
+            # print(iou)
+            # print(pair_idxs)
+            # print(dets)
+            # idxs = pair_idxs[:, 0]
+            # assert np.max(idxs[1:] - idxs[:-1]) <= 1
+            _, total_loss_val, avg_loss, avg_data_loss, summary, iou = sess.run(
                 [train_op, smoothed_optimized_loss, average_loss, average_data_loss,
-                 merge_summaries_op],
+                 merge_summaries_op, net.det_det_iou],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)
 

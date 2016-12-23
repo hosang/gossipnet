@@ -10,6 +10,7 @@ import os.path
 import numpy as np
 
 from nms_net import cfg
+from imdb.tools import validate_boxes
 
 from pycocotools.coco import COCO
 
@@ -61,6 +62,7 @@ def load_coco(split, year):
         'classes': classes,
         'class_to_ind': class_to_ind,
         'class_to_cat_id': class_to_cat_id,
+        'num_classes': len(classes) - 1,
         'roidb': roidb,
     }
     return imdb
@@ -89,6 +91,15 @@ def load_detections(coco, imdb_name, detector, cat_id_to_class_ind):
         cls = np.concatenate(cls, axis=0)
         scores = np.concatenate(scores, axis=0)
         imdets = np.concatenate(imdets, axis=0)
+
+        # drop too small detections
+        w = imdets[:, 2] - imdets[:, 0]
+        h = imdets[:, 3] - imdets[:, 1]
+        min_size = cfg.train.det_min_size
+        valid = np.logical_and(w >= min_size, h >= min_size)
+        cls = cls[valid]
+        scores = scores[valid]
+        imdets = imdets[valid, :]
 
         im_info = coco.loadImgs(imid)[0]
         width = im_info['width']
@@ -156,6 +167,14 @@ def load_image_annos(coco, image_id, cat_id_to_class_ind):
         cls = cat_id_to_class_ind[obj['category_id']]
         classes[i] = cls
 
+    w = boxes[:, 2] - boxes[:, 0]
+    h = boxes[:, 3] - boxes[:, 1]
+    min_size = cfg.train.det_min_size
+    valid = np.logical_and(w >= min_size, h >= min_size)
+    classes = classes[valid]
+    crowd = crowd[valid]
+    boxes = boxes[valid, :]
+
     validate_boxes(boxes, width=width, height=height)
     return {
         'id': im_info['id'],
@@ -176,20 +195,6 @@ def sanitize_anno_bboxes(objs, width, height):
             obj['clean_bbox'] = [x1, y1, x2, y2]
             valid_objs.append(obj)
     return valid_objs
-
-
-def validate_boxes(boxes, width=0, height=0):
-    """Check that a set of boxes are valid."""
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
-    assert (x1 >= 0).all()
-    assert (y1 >= 0).all()
-    assert (x2 >= x1).all()
-    assert (y2 >= y1).all()
-    assert (x2 <= width).all()
-    assert (y2 <= height).all()
 
 
 if __name__ == '__main__':

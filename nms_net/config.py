@@ -41,6 +41,7 @@ cfg.train.imdb = 'coco_2014_train'
 cfg.train.pos_weight = 0.1
 cfg.train.pretrained_model = ''
 cfg.train.display_iter = 20
+cfg.train.det_min_size = 4
 
 # test parameters
 cfg.test = edict()

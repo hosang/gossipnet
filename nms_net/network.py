@@ -71,13 +71,13 @@ def get_resnet(image_tensor):
 
 def enlarge_windows_convert_relative(boxdata, hw, padding=0.5):
     x1, y1, w, h, x2, y2, _ = boxdata
-    cx = (x1 + x2 - 1) / 2.0
-    cy = (y1 + y2 - 1) / 2.0
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
     nw2 = w * (0.5 + padding)
     nh2 = h * (0.5 + padding)
 
     # tensorflow wants relative coordinates
-    new_yxyx = tf.concat(1, [cy - nh2, cx - nw2, cy + nh2 + 1, cx + nw2 + 1])
+    new_yxyx = tf.concat(1, [cy - nh2, cx - nw2, cy + nh2, cx + nw2])
     denom = tf.expand_dims(tf.tile(tf.cast(hw, tf.float32), [2]), 0)
     new_yxyx = new_yxyx / denom
     return new_yxyx
@@ -99,12 +99,14 @@ class Gnet(object):
     name = 'gnet'
     dets = None
     det_scores = None
+    det_classes = None
     gt_boxes = None
     gt_crowd = None
+    gt_classes = None
     image = None
 
     @staticmethod
-    def get_batch_spec():
+    def get_batch_spec(num_classes):
         batch_spec = {
             'dets': (tf.float32, [None, 4]),
             'det_scores': (tf.float32, [None]),
@@ -113,15 +115,21 @@ class Gnet(object):
         }
         if cfg.gnet.imfeats:
             batch_spec['image'] = (tf.float32, [None, None, None, 3])
+        if num_classes > 1:
+            batch_spec['det_classes'] = (tf.int32, [None])
+            batch_spec['gt_classes'] = (tf.int32, [None])
         return batch_spec
 
-    def __init__(self, batch=None, weight_reg=None):
+    def __init__(self, num_classes, batch=None, weight_reg=None):
+        self.num_classes = num_classes
+        self.multiclass = num_classes > 1
+
         # inputs
         if batch is None:
-            for name, (dtype, shape) in self.get_batch_spec().items():
+            for name, (dtype, shape) in self.get_batch_spec(num_classes).items():
                 setattr(self, name, tf.placeholder(dtype, shape=shape))
         else:
-            for name, (dtype, shape) in self.get_batch_spec().items():
+            for name, (dtype, shape) in self.get_batch_spec(num_classes).items():
                 batch[name].set_shape(shape)
                 setattr(self, name, batch[name])
 
@@ -138,6 +146,17 @@ class Gnet(object):
                 self.det_anno_iou = self._iou(
                     self.dets_boxdata, self.gt_boxdata, self.gt_crowd)
                 self.det_det_iou = self._iou(self.dets_boxdata, self.dets_boxdata)
+                if self.multiclass:
+                    # set overlaps of detection and annotations to 0 if they
+                    # have different classes, so they don't get matched in the
+                    # loss
+                    print('doing multiclass NMS')
+                    same_class = tf.equal(
+                        tf.reshape(self.det_classes, [-1, 1]),
+                        tf.reshape(self.gt_classes, [1, -1]))
+                    zeros = tf.zeros_like(self.det_anno_iou)
+                    self.det_anno_iou = tf.select(same_class,
+                                                  self.det_anno_iou, zeros)
 
                 # find neighbors
                 self.neighbor_pair_idxs = tf.where(tf.greater_equal(
@@ -146,14 +165,13 @@ class Gnet(object):
                 pair_n_idxs = self.neighbor_pair_idxs[:, 1]
 
                 # generate handcrafted pairwise features
+                self.num_dets = tf.shape(self.dets)[0]
                 pw_feats = self._geometry_feats(pair_c_idxs, pair_n_idxs)
 
             # initializers for network weights
             weights_init = tf.contrib.layers.xavier_initializer(
                 seed=cfg.random_seed)
             biases_init = tf.constant_initializer()
-
-            self.num_dets = tf.shape(self.dets)[0]
 
             if cfg.gnet.imfeats:
                 self.det_imfeats = crop_windows(self.imfeats, self.dets_boxdata)
@@ -284,13 +302,20 @@ class Gnet(object):
 
     def _geometry_feats(self, c_idxs, n_idxs):
         with tf.variable_scope('pairwise_features'):
-            det_scores = tf.expand_dims(self.det_scores, -1)
+            if self.multiclass:
+                mc_score_shape = tf.pack([self.num_dets, self.num_classes])
+                # classes are one-based (0 is background)
+                mc_score_idxs = tf.stack(
+                    [tf.range(self.num_dets), self.det_classes - 1], axis=1)
+                det_scores = tf.scatter_nd(
+                    mc_score_idxs, self.det_scores, mc_score_shape)
+            else:
+                det_scores = tf.expand_dims(self.det_scores, -1)
             c_score = tf.gather(det_scores, c_idxs)
             n_score = tf.gather(det_scores, n_idxs)
             tmp_ious = tf.expand_dims(self.det_det_iou, -1)
             ious = tf.gather_nd(tmp_ious, self.neighbor_pair_idxs)
 
-            # TODO(jhosang): implement the rest of the pairwise features
             x1, y1, w, h, _, _, _ = self.dets_boxdata
             c_w = tf.gather(w, c_idxs)
             c_h = tf.gather(h, c_idxs)
