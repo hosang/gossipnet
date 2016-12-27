@@ -99,10 +99,7 @@ def main():
     if args.imdb is not None:
         cfg.test.imdb = args.imdb
 
-    test_imdb = imdb.get_imdb(cfg.test.imdb)
-    if cfg.train.only_class != '':
-        print('dropping all classes but {}'.format(cfg.train.only_class))
-        imdb.tools.only_keep_class(test_imdb, cfg.train.only_class)
+    test_imdb = imdb.get_imdb(cfg.test.imdb, is_training=False)
     dets = test_run(test_imdb)
     save_dets(test_imdb, dets, args.outfile)
 
