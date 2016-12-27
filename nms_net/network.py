@@ -11,15 +11,12 @@ import tensorflow.contrib.slim as slim
 from tensorflow.contrib.slim.nets import resnet_v1
 
 from nms_net import cfg
+from nms_net.roi_pooling_layer import roi_pooling_op, roi_pooling_op_grad
 
 
 this_path = os.path.dirname(os.path.realpath(__file__))
 matching_module = tf.load_op_library(os.path.join(this_path, 'det_matching.so'))
 tf.NotDifferentiable("DetectionMatching")
-
-roi_pooling_module = tf.load_op_library(os.path.join(this_path, 'roi_pooling_layer/roi_pooling.so'))
-
-# TODO(jhosang): implement validation pass & mAP
 
 
 def get_sample_weights(num_classes, labels):
@@ -53,6 +50,7 @@ def weighted_logistic_loss(logits, labels, instance_weights):
 
 
 def get_resnet(image_tensor):
+    stride = 16
     with slim.arg_scope(resnet_v1.resnet_arg_scope(is_training=True)):
         mean = tf.constant(cfg.pixel_mean, dtype=tf.float32,
                            shape=[1, 1, 1, 3], name='img_mean')
@@ -64,36 +62,52 @@ def get_resnet(image_tensor):
         else:
             raise ValueError('unkown resnet type "{}"'.format(cfg.resnet_type))
         net, end_points = net_fun(image,
-                                  global_pool=False, output_stride=16)
+                                  global_pool=False, output_stride=stride)
         layer_name = 'resnet_v1_{}/block2/unit_3/bottleneck_v1'.format(
             cfg.resnet_type)
         block2_out = end_points[layer_name]
-        return block2_out
+        return block2_out, stride
 
 
-def enlarge_windows_convert_relative(boxdata, hw, padding=0.5):
+def enlarge_windows_convert_relative(boxdata, padding=0.5):
     x1, y1, w, h, x2, y2, _ = boxdata
     cx = (x1 + x2) / 2.0
     cy = (y1 + y2) / 2.0
     nw2 = w * (0.5 + padding)
     nh2 = h * (0.5 + padding)
 
+    boxes = tf.concat(1, [cx - nw2, cy - nh2, cx + nw2, cy + nh2])
+    return boxes
+
+
+def to_tf_coords(boxes, hw):
     # tensorflow wants relative coordinates
-    new_yxyx = tf.concat(1, [cy - nh2, cx - nw2, cy + nh2, cx + nw2])
+    yxyx = tf.stack([boxes[:, 1], boxes[:, 0], boxes[:, 3], boxes[:, 2]], axis=1)
     denom = tf.expand_dims(tf.tile(tf.cast(hw, tf.float32), [2]), 0)
-    new_yxyx = new_yxyx / denom
-    return new_yxyx
+    rel_yxyx = yxyx / denom
+    return rel_yxyx
 
 
-def crop_windows(imfeats, boxdata):
-    hw = tf.shape(imfeats)[1:3]
-    rel_yxyx = enlarge_windows_convert_relative(boxdata, hw)
-    n_boxes = tf.pack([tf.shape(boxdata[0])[0]])
-    box_ind = tf.zeros(n_boxes, dtype=tf.int32)
-    crop_size = tf.constant([cfg.imfeat_crop_height, cfg.imfeat_crop_width],
-                            dtype=tf.int32)
-    detection_feats = tf.image.crop_and_resize(
-        imfeats, rel_yxyx, box_ind, crop_size, name='roi_pooling')
+def to_frcn_coords(boxes):
+    shape = tf.pack([tf.shape(boxes)[0], 1])
+    new_boxes = tf.concat(1, [tf.zeros(shape, dtype=boxes.dtype), boxes])
+    return new_boxes
+
+
+def crop_windows(imfeats, boxdata, stride):
+    boxes = enlarge_windows_convert_relative(boxdata)
+    # hw = tf.shape(imfeats)[1:3]
+    # n_boxes = tf.pack([tf.shape(boxdata[0])[0]])
+    # box_ind = tf.zeros(n_boxes, dtype=tf.int32)
+    # crop_size = tf.constant([cfg.imfeat_crop_height, cfg.imfeat_crop_width],
+    #                         dtype=tf.int32)
+    # rel_yxyx = to_tf_coords(boxes, hw)
+    # detection_feats = tf.image.crop_and_resize(
+    #     imfeats, rel_yxyx, box_ind, crop_size, name='roi_pooling')
+    frcn_boxes = to_frcn_coords(boxes)
+    detection_feats, _ = roi_pooling_op.roi_pool(
+        imfeats, frcn_boxes, pooled_height=cfg.imfeat_crop_height,
+        pooled_width=cfg.imfeat_crop_width, spatial_scale=1.0 / stride)
     return detection_feats
 
 
@@ -136,7 +150,7 @@ class Gnet(object):
                 setattr(self, name, batch[name])
 
         if cfg.gnet.imfeats:
-            self.imfeats = get_resnet(self.image)
+            self.imfeats, stride = get_resnet(self.image)
 
         with tf.variable_scope('gnet'):
             with tf.variable_scope('preprocessing'):
@@ -176,7 +190,8 @@ class Gnet(object):
             biases_init = tf.constant_initializer()
 
             if cfg.gnet.imfeats:
-                self.det_imfeats = crop_windows(self.imfeats, self.dets_boxdata)
+                self.det_imfeats = crop_windows(
+                        self.imfeats, self.dets_boxdata, stride)
                 self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
                 with tf.variable_scope('reduce_imfeats'):
                     start_feat = tf.contrib.layers.fully_connected(
