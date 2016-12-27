@@ -109,7 +109,7 @@ def val_run(sess, net, val_imdb):
     for i, roi in enumerate(tqdm(roidb)):
         if 'dets' not in roi or roi['dets'].size == 0:
             continue
-        load_roi(need_image, roi)
+        roi = load_roi(need_image, roi)
         feed_dict = {getattr(net, name): roi[name]
                      for name in batch_spec.keys()}
         weights, labels, scores = sess.run(
@@ -144,7 +144,8 @@ def compute_aps(scores, classes, labels, val_imdb):
         mask = classes == cls
         c_scores = scores[mask]
         c_labels = labels[mask]
-        cls_gt = (np.logical_and(np.logical_not(roi['gt_crowd']), roi['gt_classes']) \
+        cls_gt = (np.logical_and(np.logical_not(roi['gt_crowd']),
+                                 roi['gt_classes'] == cls)
                   for roi in val_imdb['roidb'])
         c_num_objs = sum(np.sum(is_cls_gt)
                          for is_cls_gt in cls_gt)
@@ -267,7 +268,7 @@ def train(resume):
 
             if do_val and it % cfg.train.val_iter == 0:
                 val_map, mc_ap, pc_ap = val_run(sess, net, val_imdb)
-                print('{}  iter {:6d} validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
+                print('{}  iter {:6d}   validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
                       datetime.now(), it, val_map, mc_ap))
 
             if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:

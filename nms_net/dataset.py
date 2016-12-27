@@ -10,13 +10,17 @@ from nms_net import cfg
 DEBUG = False
 
 
-def load_roi(need_images, roi):
+def load_roi(need_images, roi, cache=False):
     if DEBUG:
         print('loading ', roi)
     if need_images:
+        if not cache:
+            # make a copy so we don't keep the loaded image around
+            roi = dict(roi)
         roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
         roi['image'] = roi['image'][None, ...]
         scale_boxes(roi, im_scale)
+    return roi
 
 
 def load_image(path, flipped):
@@ -68,5 +72,5 @@ class Dataset(object):
         self._cur += self._batch_size
         assert len(db_inds) == 1
         roi = self._roidb[db_inds[0]]
-        load_roi(self._need_images, roi)
+        roi = load_roi(self._need_images, roi)
         return roi

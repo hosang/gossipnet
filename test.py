@@ -41,7 +41,7 @@ def test_run(test_imdb):
         for i, roi in enumerate(tqdm(roidb)):
             if 'dets' not in roi or roi['dets'].size == 0:
                 continue
-            load_roi(need_image, roi)
+            roi = load_roi(need_image, roi)
             feed_dict = {getattr(net, name): roi[name]
                          for name in batch_spec.keys()}
             new_scores = sess.run(net.prediction, feed_dict=feed_dict)
