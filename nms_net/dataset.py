@@ -10,6 +10,15 @@ from nms_net import cfg
 DEBUG = False
 
 
+def load_roi(need_images, roi):
+    if DEBUG:
+        print('loading ', roi)
+    if need_images:
+        roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
+        roi['image'] = roi['image'][None, ...]
+        scale_boxes(roi, im_scale)
+
+
 def load_image(path, flipped):
     target_size = cfg.image_target_size
     max_size = cfg.image_max_size
@@ -59,10 +68,5 @@ class Dataset(object):
         self._cur += self._batch_size
         assert len(db_inds) == 1
         roi = self._roidb[db_inds[0]]
-        if DEBUG:
-            print('loading ', roi)
-        if self._need_images:
-            roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
-            roi['image'] = roi['image'][None, ...]
-            scale_boxes(roi, im_scale)
+        load_roi(self._need_images, roi)
         return roi

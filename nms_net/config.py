@@ -42,6 +42,8 @@ cfg.train.pos_weight = 0.1
 cfg.train.pretrained_model = ''
 cfg.train.display_iter = 20
 cfg.train.det_min_size = 4
+cfg.train.val_imdb = ''
+cfg.train.val_iter = 10000
 
 # test parameters
 cfg.test = edict()

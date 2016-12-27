@@ -54,6 +54,7 @@ def load_coco(split, year):
         roidb = merge_roidbs(roidb, gt_roidb)
 
     print('loading detections')
+    # TODO(jhosang): shouldn't use cfg.train here, might be reading val or test
     det_roidb = load_detections(coco, name, cfg.train.detector, cat_id_to_class_ind)
     roidb = merge_roidbs(roidb, det_roidb)
 
@@ -88,6 +89,8 @@ def load_detections(coco, imdb_name, detector, cat_id_to_class_ind):
             cls.append(np.zeros((n,), dtype=np.int32) + cls_ind)
             imdets.append(t_dets[:, :4])
             scores.append(t_dets[:, 4])
+        if not cls:
+            continue
         cls = np.concatenate(cls, axis=0)
         scores = np.concatenate(scores, axis=0)
         imdets = np.concatenate(imdets, axis=0)

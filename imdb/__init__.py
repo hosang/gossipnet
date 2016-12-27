@@ -34,23 +34,41 @@ for year in ['2015']:
         _imdbs[name] = lambda split=split, year=year: load_coco(split, year)
 
 
-def get_imdb(name):
+def get_imdb(name, is_training):
     cache_filename = os.path.join(
         cfg.ROOT_DIR, 'data', 'cache',
         '{}_{}_imdb_cache.pkl'.format(name, cfg.train.detector))
     if os.path.exists(cache_filename):
         print('reading {}'.format(cache_filename))
         with open(cache_filename, 'rb') as fp:
-            return pickle.load(fp)
+            result_imdb = pickle.load(fp)
+    else:
+        result_imdb = _imdbs[name]()
+        with open(cache_filename, 'wb') as fp:
+            pickle.dump(result_imdb, fp)
+        print('wrote {}'.format(cache_filename))
 
-    result_imdb = _imdbs[name]()
-    with open(cache_filename, 'wb') as fp:
-        pickle.dump(result_imdb, fp)
-    print('wrote {}'.format(cache_filename))
+    if is_training:
+        prepro_train(result_imdb)
+    else:
+        prepro_test(result_imdb)
     return result_imdb
 
 
+def prepro_test(test_imdb):
+    print('preparing test imdb')
+    imdb.tools.print_stats(test_imdb)
+    if cfg.train.only_class != '':
+        print('dropping all classes but {}'.format(cfg.train.only_class))
+        imdb.tools.only_keep_class(test_imdb, cfg.train.only_class)
+        imdb.tools.print_stats(test_imdb)
+    print('dropping images without detections')
+    test_imdb['roidb'] = imdb.tools.drop_no_dets(test_imdb['roidb'])
+    imdb.tools.print_stats(test_imdb)
+    print('done')
+
 def prepro_train(train_imdb):
+    print('preparing train imdb')
     imdb.tools.print_stats(train_imdb)
     if cfg.train.only_class != '':
         print('dropping all classes but {}'.format(cfg.train.only_class))
@@ -65,4 +83,5 @@ def prepro_train(train_imdb):
     train_imdb['roidb'] = imdb.tools.append_flipped(train_imdb['roidb'])
     train_imdb['avg_num_dets'] = imdb.tools.get_avg_batch_size(train_imdb)
     imdb.tools.print_stats(train_imdb)
+    print('done')
 

@@ -17,6 +17,8 @@ this_path = os.path.dirname(os.path.realpath(__file__))
 matching_module = tf.load_op_library(os.path.join(this_path, 'det_matching.so'))
 tf.NotDifferentiable("DetectionMatching")
 
+roi_pooling_module = tf.load_op_library(os.path.join(this_path, 'roi_pooling_layer/roi_pooling.so'))
+
 # TODO(jhosang): implement validation pass & mAP
 
 

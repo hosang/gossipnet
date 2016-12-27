@@ -19,16 +19,16 @@ from tqdm import tqdm
 import imdb
 from nms_net import cfg
 from nms_net.config import cfg_from_file
-from nms_net.dataset import Dataset
+from nms_net.dataset import load_roi
 from nms_net.network import Gnet
 
 
-def test_run(device, test_imdb):
+def test_run(test_imdb):
     roidb = test_imdb['roidb']
     batch_spec = Gnet.get_batch_spec(num_classes=test_imdb['num_classes'])
+    need_image = 'image' in batch_spec
 
-    with tf.device(device):
-        net = Gnet(num_classes=test_imdb['num_classes'])
+    net = Gnet(num_classes=test_imdb['num_classes'])
 
     output_detections = []
     restorer = tf.train.Saver()
@@ -41,6 +41,7 @@ def test_run(device, test_imdb):
         for i, roi in enumerate(tqdm(roidb)):
             if 'dets' not in roi or roi['dets'].size == 0:
                 continue
+            load_roi(need_image, roi)
             feed_dict = {getattr(net, name): roi[name]
                          for name in batch_spec.keys()}
             new_scores = sess.run(net.prediction, feed_dict=feed_dict)
@@ -85,20 +86,12 @@ def save_dets(testimdb, dets_as_dicts, output_file):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('outfile', help='detection file output')
-    parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--cpu', nargs='?', type=bool, const=True,
-                        default=False)
     parser.add_argument('-c', '--config', default='conf.yaml')
     parser.add_argument('-m', '--model', default=None)
     parser.add_argument('-s', '--imdb', default=None)
     args, unparsed = parser.parse_known_args()
 
     cfg_from_file(args.config)
-
-    if args.cpu:
-        device = '/cpu'
-    else:
-        device = '/gpu:{}'.format(args.gpu)
 
     if args.model is not None:
         cfg.test_model = args.model
@@ -110,7 +103,7 @@ def main():
     if cfg.train.only_class != '':
         print('dropping all classes but {}'.format(cfg.train.only_class))
         imdb.tools.only_keep_class(test_imdb, cfg.train.only_class)
-    dets = test_run(device, test_imdb)
+    dets = test_run(test_imdb)
     save_dets(test_imdb, dets, args.outfile)
 
 if __name__ == '__main__':
