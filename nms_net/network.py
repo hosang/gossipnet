@@ -50,23 +50,28 @@ def weighted_logistic_loss(logits, labels, instance_weights):
 
 
 def get_resnet(image_tensor):
-    stride = 16
-    with slim.arg_scope(resnet_v1.resnet_arg_scope(is_training=True)):
+    with slim.arg_scope(resnet_v1.resnet_arg_scope(is_training=False)):
         mean = tf.constant(cfg.pixel_mean, dtype=tf.float32,
                            shape=[1, 1, 1, 3], name='img_mean')
         image = image_tensor - mean
-        if cfg.resnet_type == '50':
-            net_fun = resnet_v1.resnet_v1_50
-        elif cfg.resnet_type == '101':
-            net_fun = resnet_v1.resnet_v1_101
-        else:
-            raise ValueError('unkown resnet type "{}"'.format(cfg.resnet_type))
+
+        assert cfg.resnet_type == '101'
+        net_fun = resnet_v1.resnet_v1_101
         net, end_points = net_fun(image,
-                                  global_pool=False, output_stride=stride)
-        layer_name = 'resnet_v1_{}/block2/unit_3/bottleneck_v1'.format(
+                                  global_pool=False, output_stride=16)
+        layer_name = 'resnet_v1_{}/block3/unit_22/bottleneck_v1'.format(
             cfg.resnet_type)
         block2_out = end_points[layer_name]
-        return block2_out, stride
+        stride = 16
+        layer_prefixes = ['resnet_v1_101/conv1']
+        layer_prefixes += ['resnet_v1_101/block1/unit_{}'.format(i + 1) for i in range(3)]
+        layer_prefixes += ['resnet_v1_101/block2/unit_{}'.format(i + 1) for i in range(4)]
+        layer_prefixes += ['resnet_v1_101/block3/unit_{}'.format(i + 1) for i in range(23)]
+        layer_prefixes += ['resnet_v1_101/block4/unit_{}'.format(i + 1) for i in range(3)]
+        ignore_prefixes = layer_prefixes[:cfg.gnet.freeze_n_imfeat_layers]
+        idx = layer_prefixes.index('resnet_v1_101/block3/unit_22')
+        ignore_prefixes += layer_prefixes[idx + 1:]
+        return block2_out, stride, ignore_prefixes
 
 
 def enlarge_windows_convert_relative(boxdata, padding=0.5):
@@ -150,7 +155,7 @@ class Gnet(object):
                 setattr(self, name, batch[name])
 
         if cfg.gnet.imfeats:
-            self.imfeats, stride = get_resnet(self.image)
+            self.imfeats, stride, self._ignore_prefixes = get_resnet(self.image)
 
         with tf.variable_scope('gnet'):
             with tf.variable_scope('preprocessing'):
@@ -187,7 +192,12 @@ class Gnet(object):
             # initializers for network weights
             weights_init = tf.contrib.layers.xavier_initializer(
                 seed=cfg.random_seed)
-            biases_init = tf.constant_initializer()
+            biases_init = tf.constant_initializer(cfg.gnet.bias_const_init)
+
+            if cfg.gnet.num_pwfeat_fc > 0:
+                with tf.variable_scope('pw_feats'):
+                    pw_feats = self._pw_feats_fc(
+                            pw_feats, weights_init, biases_init, weight_reg)
 
             if cfg.gnet.imfeats:
                 self.det_imfeats = crop_windows(
@@ -196,8 +206,9 @@ class Gnet(object):
                 with tf.variable_scope('reduce_imfeats'):
                     start_feat = tf.contrib.layers.fully_connected(
                         inputs=self.det_imfeats, num_outputs=cfg.gnet.shortcut_dim,
-                        activation_fn=None,
+                        activation_fn=tf.nn.relu,
                         weights_initializer=weights_init,
+                        weights_regularizer=weight_reg,
                         biases_initializer=biases_init)
             else:
                 with tf.variable_scope('gnet'):
@@ -261,6 +272,34 @@ class Gnet(object):
                 self.loss.set_shape([])
                 tf.contrib.losses.add_loss(self.loss)
 
+        # collect trainable variables
+        tvars = tf.trainable_variables()
+        self.trainable_variables = [
+                var for var in tvars
+                if (var.name.startswith('gnet') or var.name.startswith('resnet'))
+                    and not any(var.name.startswith(pref)
+                                for pref in self._ignore_prefixes)]
+
+    @staticmethod
+    def _pw_feats_fc(pw_feats, weights_init, biases_init, weight_reg):
+        feats = pw_feats
+        for i in range(1, cfg.gnet.num_pwfeat_fc):
+            feats = tf.contrib.layers.fully_connected(
+                inputs=feats, num_outputs=cfg.gnet.pwfeat_dim,
+                activation_fn=tf.nn.relu,
+                weights_initializer=weights_init,
+                weights_regularizer=weight_reg,
+                biases_initializer=biases_init,
+                scope='fc{}'.format(i))
+        feats = tf.contrib.layers.fully_connected(
+            inputs=feats, num_outputs=cfg.gnet.pwfeat_narrow_dim,
+            activation_fn=tf.nn.relu,
+            weights_initializer=weights_init,
+            weights_regularizer=weight_reg,
+            biases_initializer=biases_init,
+            scope='fc{}'.format(cfg.gnet.num_pwfeat_fc))
+        return feats
+
     @staticmethod
     def _block(block_idx, infeats, weights_init, biases_init,
                pair_c_idxs, pair_n_idxs, pw_feats, weight_reg):
@@ -273,9 +312,20 @@ class Gnet(object):
                 biases_initializer=biases_init,
                 scope='reduce_dim')
 
+            if cfg.gnet.neighbor_feats:
+                neighbor_feats = tf.contrib.layers.fully_connected(
+                    inputs=infeats, num_outputs=cfg.gnet.reduced_dim,
+                    activation_fn=tf.nn.relu,
+                    weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
+                    biases_initializer=biases_init,
+                    scope='reduce_dim_neighbor')
+            else:
+                neighbor_feats = feats
+
             with tf.variable_scope('build_context'):
                 c_feats = tf.gather(feats, pair_c_idxs)
-                n_feats = tf.gather(feats, pair_n_idxs)
+                n_feats = tf.gather(neighbor_feats, pair_n_idxs)
 
                 # zero out features where c_idx == n_idx
                 is_id_row = tf.equal(pair_c_idxs, pair_n_idxs)

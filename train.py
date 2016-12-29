@@ -43,7 +43,7 @@ class ModelManager(object):
         self.models.append((global_iter, ap, model_file))
 
 
-def get_optimizer(loss_op):
+def get_optimizer(loss_op, tvars):
     learning_rate = tf.placeholder(tf.float32, shape=[])
     if cfg.train.optimizer == 'adam':
         opt_func = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -52,12 +52,10 @@ def get_optimizer(loss_op):
             learning_rate=learning_rate, momentum=cfg.train.momentum)
     else:
         raise ValueError('unknown optimizer {}'.format(cfg.train.optimizer))
-    if cfg.train.gradient_clipping > 0:
-        tvars = tf.trainable_variables()
-        grads, _ = tf.clip_by_global_norm(tf.gradients(loss_op, tvars), cfg.train.gradient_clipping)
-        train_op = opt_func.apply_gradients(zip(grads, tvars))
-    else:
-        train_op = slim.learning.create_train_op(loss_op, opt_func)
+    train_op = slim.learning.create_train_op(
+            loss_op, opt_func,
+            variables_to_train=tvars,
+            clip_gradient_norm=cfg.train.gradient_clipping)
     return learning_rate, train_op
 
 
@@ -189,9 +187,9 @@ def train(resume):
     # reg_op = tf.reduce_mean(reg_ops)
     # optimized_loss = net.loss + reg_op
     optimized_loss = tf.contrib.losses.get_total_loss()
-    learning_rate, train_op = get_optimizer(optimized_loss)
+    learning_rate, train_op = get_optimizer(optimized_loss, net.trainable_variables)
 
-    ema = tf.train.ExponentialMovingAverage(decay=0.999)
+    ema = tf.train.ExponentialMovingAverage(decay=0.9)
     num_dets_float = tf.cast(net.num_dets, tf.float32)
     per_det_loss = optimized_loss / num_dets_float
     per_det_data_loss = net.loss / num_dets_float
@@ -211,6 +209,7 @@ def train(resume):
         tf.summary.scalar('data_loss_per_det', per_det_data_loss)
         # tf.summary.scalar('regularizer', reg_op)
         tf.summary.scalar('lr', learning_rate)
+        tf.summary.scalar('q_size', q_size)
         merge_summaries_op = tf.summary.merge_all()
 
     if resume:

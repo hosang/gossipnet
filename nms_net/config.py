@@ -63,6 +63,12 @@ cfg.gnet.num_predict_fc = 3
 cfg.gnet.block_dim = 2 * 32
 cfg.gnet.predict_fc_dim = 128
 cfg.gnet.imfeats = False
+cfg.gnet.neighbor_feats = False
+cfg.gnet.num_pwfeat_fc = 0
+cfg.gnet.pwfeat_dim = 256
+cfg.gnet.pwfeat_narrow_dim = 64
+cfg.gnet.bias_const_init = 0.0
+cfg.gnet.freeze_n_imfeat_layers = 3
 
 
 def _merge_a_into_b(a, b):
