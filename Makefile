@@ -13,7 +13,7 @@ nms_net/roi_pooling_layer/roi_pooling.so: nms_net/roi_pooling_layer/roi_pooling_
 	g++ -std=c++11 -c $< -o $@ -fPIC -I ${TF_INC} -O2
 
 %.o: %.cu
-	nvcc -std=c++11 -c $< -o $@ -I ${TF_INC} -O2 -x cu -arch=sm_37
+	nvcc -std=c++11 -c $< -o $@ -I ${TF_INC} -O2 -x cu -arch=sm_37 -D GOOGLE_CUDA=1
 
 %.so: %.cc
 	g++ -std=c++11 -shared $< -o $@ -fPIC -I ${TF_INC} -O2
