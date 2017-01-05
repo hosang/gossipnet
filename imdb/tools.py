@@ -95,3 +95,18 @@ def validate_boxes(boxes, width=0, height=0):
     assert (y2 >= y1 + 1).all()
     assert (x2 <= width).all()
     assert (y2 <= height).all()
+
+
+def get_class_counts(imdb):
+    freq = np.ones((imdb['num_classes'] + 1,), dtype=np.int64)
+    for roi in imdb['roidb']:
+        num_pos = 0
+        if 'gt_classes' in roi:
+            num_pos = roi['gt_classes'].size
+            for cls in roi['gt_classes']:
+                freq[cls] += 1
+        if 'det_classes' in roi:
+            num_bg = roi['det_classes'].size - num_pos
+            freq[0] += num_bg
+    return freq
+

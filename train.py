@@ -19,6 +19,7 @@ from nms_net import cfg
 from nms_net.network import Gnet
 from nms_net.config import cfg_from_file
 from nms_net.dataset import Dataset, load_roi
+from nms_net.class_weights import class_equal_weights
 
 
 class LearningRate(object):
@@ -177,11 +178,13 @@ def train(resume):
     do_val = len(cfg.train.val_imdb) > 0
     if do_val:
         val_imdb = imdb.get_imdb(cfg.train.val_imdb, is_training=False)
+
+    class_weights = class_equal_weights(train_imdb)
     preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
             Gnet.get_batch_spec(train_imdb['num_classes']))
     reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
     net = Gnet(num_classes=train_imdb['num_classes'], batch=preloaded_batch,
-               weight_reg=reg)
+               weight_reg=reg, class_weights=class_weights)
     lr_gen = LearningRate()
     # reg_ops = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     # reg_op = tf.reduce_mean(reg_ops)
@@ -226,6 +229,7 @@ def train(resume):
 
     saver = tf.train.Saver(max_to_keep=None)
     config = tf.ConfigProto(
+            #log_device_placement=True,
             allow_soft_placement=True)
     # config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:

@@ -38,6 +38,10 @@ def get_sample_weights(num_classes, labels):
                 tf.cast(class_counts, tf.float32))
         int_labels = tf.cast(labels, tf.int32)
         sample_weights = tf.gather(class_weights, int_labels)
+        #with tf.name_scope('summaries'):
+        #    tf.summary.tensor_summary('exp_class_weights', exp_class_weights)
+        #    tf.summary.tensor_summary('counts', class_counts)
+        #    tf.summary.tensor_summary('class_weights', class_weights)
     return sample_weights
 
 
@@ -133,15 +137,15 @@ class Gnet(object):
             'det_scores': (tf.float32, [None]),
             'gt_boxes': (tf.float32, [None, 4]),
             'gt_crowd': (tf.bool, [None]),
+            'gt_classes': (tf.int32, [None]),
+            'det_classes': (tf.int32, [None]),
         }
         if cfg.gnet.imfeats:
             batch_spec['image'] = (tf.float32, [None, None, None, 3])
-        if num_classes > 1:
-            batch_spec['det_classes'] = (tf.int32, [None])
-            batch_spec['gt_classes'] = (tf.int32, [None])
         return batch_spec
 
-    def __init__(self, num_classes, batch=None, weight_reg=None):
+    def __init__(self, num_classes, class_weights=None, batch=None,
+                 weight_reg=None):
         self.num_classes = num_classes
         self.multiclass = num_classes > 1
 
@@ -154,6 +158,7 @@ class Gnet(object):
                 batch[name].set_shape(shape)
                 setattr(self, name, batch[name])
 
+        self._ignore_prefixes = []
         if cfg.gnet.imfeats:
             self.imfeats, stride, self._ignore_prefixes = get_resnet(self.image)
 
@@ -250,16 +255,23 @@ class Gnet(object):
                         self.det_anno_iou, self.prediction, self.gt_crowd)
 
                 # class weighting
-                sample_class = tf.zeros(tf.shape(self.labels), dtype=tf.float32)
+                if class_weights is None:
+                    class_weights = np.ones((num_classes + 1), dtype=np.float32)
+                self.class_weights = tf.constant(class_weights, dtype=tf.float32)
+
                 det_crowd = tf.cond(
                         tf.shape(self.gt_crowd)[0] > 0,
                         lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
-                        lambda: tf.zeros(tf.shape(sample_class), dtype=tf.bool))
-                sample_class2 = tf.select(
+                        lambda: tf.zeros(tf.shape(self.labels), dtype=tf.bool))
+                det_class = tf.cond(
+                        tf.shape(self.gt_crowd)[0] > 0,
+                        lambda: tf.gather(tf.cast(self.gt_classes, tf.int32), tf.maximum(self.det_gt_matching, 0)),
+                        lambda: tf.zeros(tf.shape(self.labels), dtype=tf.int32))
+                det_class = tf.select(
                         tf.logical_and(self.det_gt_matching >= 0,
                                        tf.logical_not(det_crowd)),
-                        tf.ones(tf.shape(sample_class)), sample_class)
-                sample_weight = get_sample_weights(2, sample_class2)
+                        det_class, tf.zeros_like(det_class))
+                sample_weight = tf.gather(self.class_weights, det_class)
                 self.weights = self.weights * sample_weight
 
                 # logistic_loss = weighted_logistic_loss(
