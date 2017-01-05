@@ -116,10 +116,10 @@ class DetectionMatchingOp : public OpKernel {
             // match successful and best so far, store appropriately
             iou = ious(det, gt);
             match = gt;
-            is_matched[gt] = true;
         }
 
         if (match > -1) {
+            is_matched[match] = true;
             labels(det) = 1;
             assignments(det) = match;
             if (ignore(match)) {
