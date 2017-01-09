@@ -105,7 +105,7 @@ def val_run(sess, net, val_imdb):
     all_labels = []
     all_scores = []
     all_classes = []
-    for i, roi in enumerate(tqdm(roidb)):
+    for i, roi in enumerate(roidb):
         if 'dets' not in roi or roi['dets'].size == 0:
             continue
         roi = load_roi(need_image, roi)
@@ -259,9 +259,9 @@ def train(resume):
             # print(dets)
             # idxs = pair_idxs[:, 0]
             # assert np.max(idxs[1:] - idxs[:-1]) <= 1
-            _, total_loss_val, avg_loss, avg_data_loss, summary, iou = sess.run(
+            _, total_loss_val, avg_loss, avg_data_loss, summary = sess.run(
                 [train_op, smoothed_optimized_loss, average_loss, average_data_loss,
-                 merge_summaries_op, net.det_det_iou],
+                 merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)
 
@@ -270,6 +270,7 @@ def train(resume):
                       datetime.now(), it, lr_gen.get_lr(it), total_loss_val, avg_data_loss, avg_loss))
 
             if do_val and it % cfg.train.val_iter == 0:
+                print('{}  starting validation'.format(datetime.now()))
                 val_map, mc_ap, pc_ap = val_run(sess, net, val_imdb)
                 print('{}  iter {:6d}   validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
                       datetime.now(), it, val_map, mc_ap))

@@ -77,6 +77,12 @@ def prepro_train(train_imdb):
     print('dropping images without detections')
     train_imdb['roidb'] = imdb.tools.drop_no_dets(train_imdb['roidb'])
     imdb.tools.print_stats(train_imdb)
+    #if cfg.train.max_num_detections > 0:
+    #    print('dropping all but {} highest scoring detections'.format(
+    #        cfg.train.max_num_detections))
+    #    imdb.tools.drop_too_many_detections(train_imdb,
+    #                                        cfg.train.max_num_detections)
+    #    imdb.tools.print_stats(train_imdb)
     # print('dropping images without annotations')
     # train_imdb['roidb'] = imdb.tools.drop_no_gt(train_imdb['roidb'])
     print('appending flipped images')

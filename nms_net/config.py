@@ -44,6 +44,7 @@ cfg.train.display_iter = 20
 cfg.train.det_min_size = 4
 cfg.train.val_imdb = ''
 cfg.train.val_iter = 10000
+cfg.train.max_num_detections = -1
 
 # test parameters
 cfg.test = edict()

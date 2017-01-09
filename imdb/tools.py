@@ -61,6 +61,17 @@ def only_keep_class(imdb, class_name):
             validate_boxes(roi['dets'], width=roi['width'], height=roi['height'])
 
 
+def drop_too_many_detections(imdb, max_num_detections):
+    roidb = imdb['roidb']
+    for roi in roidb:
+        if 'det_classes' in roi:
+            ord = np.argsort(roi['det_scores'])[::-1]
+            sel = ord[:max_num_detections]
+            roi['det_classes'] = roi['det_classes'][sel]
+            roi['dets'] = roi['dets'][sel, :]
+            roi['det_scores'] = roi['det_scores'][sel]
+
+
 def print_stats(imdb):
     roidb = imdb['roidb']
     num_annos = 0

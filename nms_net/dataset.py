@@ -13,10 +13,20 @@ DEBUG = False
 def load_roi(need_images, roi, cache=False):
     if DEBUG:
         print('loading ', roi)
+
+    if not cache:
+        # make a copy so we don't keep the loaded image around
+        roi = dict(roi)
+
+    maxdet = cfg.train.max_num_detections
+    if maxdet > 0 and maxdet < roi['det_classes'].size:
+        sel = np.random.choice(roi['det_classes'].size, size=maxdet,
+                               replace=False)
+        roi['det_classes'] = roi['det_classes'][sel]
+        roi['dets'] = roi['dets'][sel, :]
+        roi['det_scores'] = roi['det_scores'][sel]
+
     if need_images:
-        if not cache:
-            # make a copy so we don't keep the loaded image around
-            roi = dict(roi)
         roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
         roi['image'] = roi['image'][None, ...]
         scale_boxes(roi, im_scale)
@@ -38,7 +48,7 @@ def load_image(path, flipped):
         im_scale = max_size / im_size_max
 
     if flipped:
-        im = im[:, ::-1, :]
+        im = im[:, ::-1, :].copy()
     im = imresize(im, im_scale)
     return im, im_scale
 
