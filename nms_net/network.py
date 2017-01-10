@@ -209,6 +209,13 @@ class Gnet(object):
                         self.imfeats, self.dets_boxdata, stride)
                 self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
                 with tf.variable_scope('reduce_imfeats'):
+                    if cfg.gnet.imfeat_dim > 0:
+                        self.det_imfeats = tf.contrib.layers.fully_connected(
+                            inputs=self.det_imfeats, num_outputs=cfg.gnet.imfeat_dim,
+                            activation_fn=tf.nn.relu,
+                            weights_initializer=weights_init,
+                            weights_regularizer=weight_reg,
+                            biases_initializer=biases_init)
                     start_feat = tf.contrib.layers.fully_connected(
                         inputs=self.det_imfeats, num_outputs=cfg.gnet.shortcut_dim,
                         activation_fn=tf.nn.relu,
@@ -274,14 +281,19 @@ class Gnet(object):
                 sample_weight = tf.gather(self.class_weights, det_class)
                 self.weights = self.weights * sample_weight
 
-                # logistic_loss = weighted_logistic_loss(
-                #     self.prediction, self.labels, self.weights)
                 sample_losses = tf.nn.sigmoid_cross_entropy_with_logits(
                     self.prediction, self.labels)
                 weighted_losses = sample_losses * self.weights
-                self.loss = tf.reduce_sum(
-                    weighted_losses, name='cls_loss')
-                self.loss.set_shape([])
+                self.loss_unnormed = tf.reduce_sum(
+                    weighted_losses, name='cls_loss_unnormed')
+                self.loss_unnormed.set_shape([])
+                self.loss_normed = tf.reduce_mean(
+                    weighted_losses, name='cls_loss_normed')
+                self.loss_normed.set_shape([])
+                if cfg.train.normalize_loss:
+                    self.loss = self.loss_normed
+                else:
+                    self.loss = self.loss_unnormed
                 tf.contrib.losses.add_loss(self.loss)
 
         # collect trainable variables

@@ -34,17 +34,19 @@ REGISTER_OP("DetectionMatching")
 
 template <typename T>
 class DetectionMatchingOp : public OpKernel {
+ private:
+  vector<size_t> det_order, gt_order;
+  vector<bool> is_matched;
  public:
   explicit DetectionMatchingOp(OpKernelConstruction* context) : OpKernel(context) {}
 
   template <typename T2>
-  vector<size_t> argsort(const typename TTypes<T2>::ConstFlat &v) {
-      vector<size_t> idx(v.dimension(0));
-      iota(idx.begin(), idx.end(), 0);
+  void argsort(const typename TTypes<T2>::ConstFlat &v, vector<size_t> *idx) const {
+      idx->resize(v.dimension(0));
+      iota(idx->begin(), idx->end(), 0);
 
-      sort(idx.begin(), idx.end(),
+      sort(idx->begin(), idx->end(),
               [&v](size_t i1, size_t i2) {return v(i1) < v(i2);});
-      return idx;
   }
 
   void Compute(OpKernelContext* context) override {
@@ -70,10 +72,10 @@ class DetectionMatchingOp : public OpKernel {
                 errors::InvalidArgument("DetectionMatching expects dim 2 of input 1 and dim 1 of input 3 to be the same (",
                     ious.dimension(1), " != ", ignore.dimension(0), ")"))
 
-    auto det_order = argsort<T>(score);
+    argsort<T>(score, &det_order);
     reverse(det_order.begin(), det_order.end());
 
-    auto gt_order = argsort<bool>(ignore);
+    argsort<bool>(ignore, &gt_order);
 
     // Create output tensors
     Tensor* label_tensor = NULL;
@@ -96,7 +98,7 @@ class DetectionMatchingOp : public OpKernel {
 
     const int n_dets = ious.dimension(0);
     const int n_gt = ious.dimension(1);
-    vector<bool> is_matched(n_gt, false);
+    is_matched.resize(n_gt, false);
 
     for (int _det_i = 0; _det_i < n_dets; ++_det_i) {
         const int det = det_order[_det_i];

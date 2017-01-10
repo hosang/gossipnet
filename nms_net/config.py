@@ -45,6 +45,7 @@ cfg.train.det_min_size = 4
 cfg.train.val_imdb = ''
 cfg.train.val_iter = 10000
 cfg.train.max_num_detections = -1
+cfg.train.normalize_loss = False
 
 # test parameters
 cfg.test = edict()
@@ -64,6 +65,7 @@ cfg.gnet.num_predict_fc = 3
 cfg.gnet.block_dim = 2 * 32
 cfg.gnet.predict_fc_dim = 128
 cfg.gnet.imfeats = False
+cfg.gnet.imfeat_dim = -1
 cfg.gnet.neighbor_feats = False
 cfg.gnet.num_pwfeat_fc = 0
 cfg.gnet.pwfeat_dim = 256

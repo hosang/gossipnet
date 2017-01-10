@@ -192,28 +192,23 @@ def train(resume):
     optimized_loss = tf.contrib.losses.get_total_loss()
     learning_rate, train_op = get_optimizer(optimized_loss, net.trainable_variables)
 
-    ema = tf.train.ExponentialMovingAverage(decay=0.9)
-    num_dets_float = tf.cast(net.num_dets, tf.float32)
-    per_det_loss = optimized_loss / num_dets_float
-    per_det_data_loss = net.loss / num_dets_float
-    per_det_loss.set_shape([])
-    per_det_data_loss.set_shape([])
-    maintain_averages_op = ema.apply([per_det_loss, per_det_data_loss, optimized_loss])
-    # update moving averages after every loss evaluation
-    with tf.control_dependencies([train_op]):
-        train_op = tf.group(maintain_averages_op)
-    average_loss = ema.average(per_det_loss)
-    average_data_loss = ema.average(per_det_data_loss)
-    smoothed_optimized_loss = ema.average(optimized_loss)
-
     with tf.name_scope('summaries'):
         tf.summary.scalar('loss', net.loss)
-        tf.summary.scalar('loss_per_det', per_det_loss)
-        tf.summary.scalar('data_loss_per_det', per_det_data_loss)
-        # tf.summary.scalar('regularizer', reg_op)
+        tf.summary.scalar('loss_normed', net.loss_normed)
+        tf.summary.scalar('loss_unnormed', net.loss_unnormed)
         tf.summary.scalar('lr', learning_rate)
         tf.summary.scalar('q_size', q_size)
         merge_summaries_op = tf.summary.merge_all()
+
+    with tf.name_scope('averaging'):
+        ema = tf.train.ExponentialMovingAverage(decay=0.7)
+        maintain_averages_op = ema.apply([net.loss_normed, net.loss_unnormed, optimized_loss])
+        # update moving averages after every loss evaluation
+        with tf.control_dependencies([train_op]):
+            train_op = tf.group(maintain_averages_op)
+        smoothed_loss_normed = ema.average(net.loss_normed)
+        smoothed_loss_unnormed = ema.average(net.loss_unnormed)
+        smoothed_optimized_loss = ema.average(optimized_loss)
 
     if resume:
         ckpt = tf.train.get_checkpoint_state('./')
@@ -259,15 +254,15 @@ def train(resume):
             # print(dets)
             # idxs = pair_idxs[:, 0]
             # assert np.max(idxs[1:] - idxs[:-1]) <= 1
-            _, total_loss_val, avg_loss, avg_data_loss, summary = sess.run(
-                [train_op, smoothed_optimized_loss, average_loss, average_data_loss,
-                 merge_summaries_op],
+            _, val_total_loss, val_loss_normed, val_loss_unnormed, summary = sess.run(
+                [train_op, smoothed_optimized_loss, smoothed_loss_normed,
+                 smoothed_loss_unnormed, merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)
 
             if it % cfg.train.display_iter == 0:
-                print('{}  iter {:6d}   lr {:8g}   opt loss {:8g}   smoothed loss/det {:8g} + (reg) = {:8g}'.format(
-                      datetime.now(), it, lr_gen.get_lr(it), total_loss_val, avg_data_loss, avg_loss))
+                print('{}  iter {:6d}   lr {:8g}   opt loss {:8g}     data loss normalized {:8g}   unnormalized {:8g}'.format(
+                      datetime.now(), it, lr_gen.get_lr(it), val_total_loss, val_loss_normed, val_loss_unnormed))
 
             if do_val and it % cfg.train.val_iter == 0:
                 print('{}  starting validation'.format(datetime.now()))
