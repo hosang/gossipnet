@@ -40,22 +40,7 @@ REGISTER_OP("RoiPool")
     .Input("bottom_data: T")
     .Input("bottom_rois: T")
     .Output("top_data: T")
-    .Output("argmax: int32")
-    .SetShapeFn([](InferenceContext* c) {
-      int h, w;
-      TF_RETURN_IF_ERROR(c->GetAttr("pooled_height", &h));
-      TF_RETURN_IF_ERROR(c->GetAttr("pooled_width", &w));
-
-      ShapeHandle im_shape, roi_shape;
-      TF_RETURN_IF_ERROR(c->WithRank(c->input(0), 4, &im_shape));
-      TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 2, &roi_shape));
-
-      ShapeHandle output_shape = c->MakeShape(
-              {c->Dim(roi_shape, 0), h, w, c->Dim(im_shape, 3)});
-      c->set_output(0, output_shape);
-      c->set_output(1, output_shape);
-      return Status::OK();
-    });
+    .Output("argmax: int32");
 
 REGISTER_OP("RoiPoolGrad")
     .Attr("T: {float, double}")
@@ -575,7 +560,7 @@ class RoiPoolGradOp<Eigen::GpuDevice, T> : public OpKernel {
 
 REGISTER_KERNEL_BUILDER(Name("RoiPool").Device(DEVICE_CPU).TypeConstraint<float>("T"), RoiPoolOp<CPUDevice, float>);
 REGISTER_KERNEL_BUILDER(Name("RoiPoolGrad").Device(DEVICE_CPU).TypeConstraint<float>("T"), RoiPoolGradOp<CPUDevice, float>);
-#if GOOGLE_CUDA
+//#if GOOGLE_CUDA
 REGISTER_KERNEL_BUILDER(Name("RoiPool").Device(DEVICE_GPU).TypeConstraint<float>("T"), RoiPoolOp<Eigen::GpuDevice, float>);
 REGISTER_KERNEL_BUILDER(Name("RoiPoolGrad").Device(DEVICE_GPU).TypeConstraint<float>("T"), RoiPoolGradOp<Eigen::GpuDevice, float>);
-#endif
+//#endif

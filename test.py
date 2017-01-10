@@ -32,8 +32,9 @@ def test_run(test_imdb):
 
     output_detections = []
     restorer = tf.train.Saver()
-    config = tf.ConfigProto(
-            allow_soft_placement=True)
+    config = tf.ConfigProto()
+            #log_device_placement=True,
+            #allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()

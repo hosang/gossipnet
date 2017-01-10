@@ -8,6 +8,7 @@ import argparse
 import threading
 from pprint import pprint
 from datetime import datetime
+import os
 
 from tqdm import tqdm
 import numpy as np
@@ -40,8 +41,24 @@ class ModelManager(object):
     def __init__(self):
         self.models = []
 
-    def add(self, global_iter, model_file, ap):
+    def add(self, global_iter, ap, model_file):
         self.models.append((global_iter, ap, model_file))
+
+    def print_summary(self):
+        best_ap, best_model_file = max((ap, model_file) for _, ap, model_file in self.models)
+        print('{:10s}  {:6s}'.format('Iteration', 'mAP'))
+        for it, ap, model_file in self.models:
+            if model_file == best_model_file:
+                print('{:10d}  {:6.1f}  (best)'.format(it, ap))
+            else:
+                print('{:10d}  {:6.1f}'.format(it, ap))
+
+    def write_link_to_best(self, link):
+        best_ap, best_model_file = max((ap, model_file) for _, ap, model_file in self.models)
+        print('writing symlink {} -> {}'.format(link, best_model_file))
+        if os.path.lexists(link):
+            os.remove(link)
+        os.symlink(best_model_file, link)
 
 
 def get_optimizer(loss_op, tvars):
@@ -137,7 +154,6 @@ def compute_aps(scores, classes, labels, val_imdb):
     multiclass_ap = _compute_ap(scores, labels, num_objs)
 
     all_cls = np.unique(classes)
-    print(all_cls)
     cls_ap = []
     for cls in all_cls:
         mask = classes == cls
@@ -223,9 +239,10 @@ def train(resume):
             list(set(variables_to_restore) - set(variables_to_exclude)))
 
     saver = tf.train.Saver(max_to_keep=None)
-    config = tf.ConfigProto(
+    model_manager = ModelManager()
+    config = tf.ConfigProto()
             #log_device_placement=True,
-            allow_soft_placement=True)
+            #allow_soft_placement=True)
     # config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
@@ -246,14 +263,6 @@ def train(resume):
             if coord.should_stop():
                 break
 
-            # iou, pair_idxs, dets = sess.run([net.det_det_iou, net.neighbor_pair_idxs,
-            #                            net.dets],
-            #     feed_dict={learning_rate: lr_gen.get_lr(it)})
-            # print(iou)
-            # print(pair_idxs)
-            # print(dets)
-            # idxs = pair_idxs[:, 0]
-            # assert np.max(idxs[1:] - idxs[:-1]) <= 1
             _, val_total_loss, val_loss_normed, val_loss_unnormed, summary = sess.run(
                 [train_op, smoothed_optimized_loss, smoothed_loss_normed,
                  smoothed_loss_unnormed, merge_summaries_op],
@@ -270,14 +279,22 @@ def train(resume):
                 print('{}  iter {:6d}   validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
                       datetime.now(), it, val_map, mc_ap))
 
-            if it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
+                save_path = saver.save(sess, net.name, global_step=it)
+                print('wrote model to {}'.format(save_path))
+                model_manager.add(it, val_map, save_path)
+                model_manager.print_summary()
+                model_manager.write_link_to_best('./gnet_best')
+
+            elif it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
                 save_path = saver.save(sess, net.name, global_step=it)
                 print('wrote model to {}'.format(save_path))
 
-            # TODO(jhosang): write best-model-symlink
         coord.request_stop()
         coord.join()
     print('training finished')
+    if do_val:
+        print('summary of validation performance')
+        model_manager.print_summary()
 
 
 def main():

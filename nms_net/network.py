@@ -78,7 +78,7 @@ def get_resnet(image_tensor):
         return block2_out, stride, ignore_prefixes
 
 
-def enlarge_windows_convert_relative(boxdata, padding=0.5):
+def enlarge_windows(boxdata, padding=0.5):
     x1, y1, w, h, x2, y2, _ = boxdata
     cx = (x1 + x2) / 2.0
     cy = (y1 + y2) / 2.0
@@ -104,7 +104,8 @@ def to_frcn_coords(boxes):
 
 
 def crop_windows(imfeats, boxdata, stride):
-    boxes = enlarge_windows_convert_relative(boxdata)
+    boxes = enlarge_windows(boxdata)
+
     # hw = tf.shape(imfeats)[1:3]
     # n_boxes = tf.pack([tf.shape(boxdata[0])[0]])
     # box_ind = tf.zeros(n_boxes, dtype=tf.int32)
