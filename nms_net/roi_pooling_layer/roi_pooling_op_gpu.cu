@@ -33,12 +33,12 @@ __global__ void ROIPoolForward(const int nthreads, const Dtype* bottom_data,
     int ph = n % pooled_height;
     n /= pooled_height;
 
-    bottom_rois += n * 5;
-    int roi_batch_ind = bottom_rois[0];
-    int roi_start_w = round(bottom_rois[1] * spatial_scale);
-    int roi_start_h = round(bottom_rois[2] * spatial_scale);
-    int roi_end_w = round(bottom_rois[3] * spatial_scale);
-    int roi_end_h = round(bottom_rois[4] * spatial_scale);
+    const Dtype* bottom_roi = bottom_rois + n * 5;
+    int roi_batch_ind = bottom_roi[0];
+    int roi_start_w = round(bottom_roi[1] * spatial_scale);
+    int roi_start_h = round(bottom_roi[2] * spatial_scale);
+    int roi_end_w = round(bottom_roi[3] * spatial_scale);
+    int roi_end_h = round(bottom_roi[4] * spatial_scale);
 
     // Force malformed ROIs to be 1x1
     int roi_width = max(roi_end_w - roi_start_w + 1, 1);
@@ -68,11 +68,11 @@ __global__ void ROIPoolForward(const int nthreads, const Dtype* bottom_data,
     Dtype maxval = is_empty ? 0 : -FLT_MAX;
     // If nothing is pooled, argmax = -1 causes nothing to be backprop'd
     int maxidx = -1;
-    bottom_data += roi_batch_ind * channels * height * width;
+    const Dtype *data = bottom_data + roi_batch_ind * channels * height * width;
     for (int h = hstart; h < hend; ++h) {
       for (int w = wstart; w < wend; ++w) {
         int bottom_index = (h * width + w) * channels + c;
-        if (bottom_data[bottom_index] > maxval) {
+        if (data[bottom_index] > maxval) {
           maxval = bottom_data[bottom_index];
           maxidx = bottom_index;
         }
