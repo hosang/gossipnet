@@ -11,6 +11,7 @@ using tensorflow::shape_inference::InferenceContext;
 using tensorflow::shape_inference::DimensionHandle;
 using tensorflow::shape_inference::ShapeHandle;
 
+// #define DEBUG 1
 
 REGISTER_OP("DetectionMatching")
     .Attr("T: {float}")
@@ -48,6 +49,25 @@ class DetectionMatchingOp : public OpKernel {
       sort(idx->begin(), idx->end(),
               [&v](size_t i1, size_t i2) {return v(i1) < v(i2);});
   }
+
+//  template <typename T2>
+//  void printarr(const char* msg, const typename TTypes<T2>::ConstFlat &v, size_t max_n, vector<size_t> *idxs) const {
+//      cout << msg << " ";
+//      for (size_t i = 0; i < min<size_t>(max_n, v.dimension(0)); ++i) {
+//          const int idx = (idxs != NULL) ? (*idxs)[i] : i;
+//          cout << "(" << idx << ": " << v(idx) << ") ";
+//      }
+//      cout << endl;
+//  }
+//  template <typename T2>
+//  void printarr(const char* msg, const vector<T2> &v, size_t max_n, vector<size_t> *idxs) const {
+//      cout << msg << " ";
+//      for (size_t i = 0; i < min(max_n, v.size()); ++i) {
+//          const int idx = (idxs != NULL) ? (*idxs)[i] : i;
+//          cout << "(" << idx << ": " << v[idx] << ") ";
+//      }
+//      cout << endl;
+//  }
 
   void Compute(OpKernelContext* context) override {
     const T iou_thresh = 0.5;
@@ -96,9 +116,11 @@ class DetectionMatchingOp : public OpKernel {
     auto assignments = assignment_tensor->flat<int32>();
     assignments.setConstant(-1);
 
+    // run the matching
     const int n_dets = ious.dimension(0);
     const int n_gt = ious.dimension(1);
-    is_matched.resize(n_gt, false);
+    is_matched.resize(n_gt);
+    fill(is_matched.begin(), is_matched.end(), false);
 
     for (int _det_i = 0; _det_i < n_dets; ++_det_i) {
         const int det = det_order[_det_i];
@@ -109,11 +131,17 @@ class DetectionMatchingOp : public OpKernel {
             const int gt = gt_order[_gt_i];
 
             // if this gt already matched, and not a crowd, continue
-            if (is_matched[gt] && !ignore(gt)) continue;
+            if (is_matched[gt] && !ignore(gt)) {
+                continue;
+            }
             // if dt matched to reg gt, and on ignore gt, stop
-            if (match > -1 && ignore(gt)) break;
+            if (match > -1 && ignore(gt)) {
+                break;
+            }
             // continue to next gt unless better match made
-            if (ious(det, gt) < iou) continue;
+            if (ious(det, gt) < iou) {
+                continue;
+            }
 
             // match successful and best so far, store appropriately
             iou = ious(det, gt);

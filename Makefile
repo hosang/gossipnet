@@ -4,7 +4,7 @@ TF_INC="/home/jhosang/env/py3.4-tensorflow/lib/python3.4/site-packages/tensorflo
 
 .PHONY: all
 
-all: nms_net/det_matching.so nms_net/roi_pooling_layer/roi_pooling.so
+all: nms_net/matching_module/det_matching.so nms_net/roi_pooling_layer/roi_pooling.so
 
 nms_net/roi_pooling_layer/roi_pooling.so: nms_net/roi_pooling_layer/roi_pooling_op.o nms_net/roi_pooling_layer/roi_pooling_op_gpu.o
 	g++ -std=c++11 -shared $^ -o $@ -fPIC -O2

@@ -14,9 +14,7 @@ from nms_net import cfg
 from nms_net.roi_pooling_layer import roi_pooling_op, roi_pooling_op_grad
 
 
-this_path = os.path.dirname(os.path.realpath(__file__))
-matching_module = tf.load_op_library(os.path.join(this_path, 'det_matching.so'))
-tf.NotDifferentiable("DetectionMatching")
+from nms_net import matching_module
 
 
 def get_sample_weights(num_classes, labels):
@@ -184,6 +182,8 @@ class Gnet(object):
                     zeros = tf.zeros_like(self.det_anno_iou)
                     self.det_anno_iou = tf.select(same_class,
                                                   self.det_anno_iou, zeros)
+                else:
+                    print('doing single class NMS')
 
                 # find neighbors
                 self.neighbor_pair_idxs = tf.where(tf.greater_equal(
