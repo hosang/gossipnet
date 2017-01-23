@@ -116,8 +116,9 @@ def get_class_counts(imdb):
             num_pos = roi['gt_classes'].size
             for cls in roi['gt_classes']:
                 freq[cls] += 1
+        num_bg = 0
         if 'det_classes' in roi:
-            num_bg = roi['det_classes'].size - num_pos
+            num_bg = max(0, roi['det_classes'].size - num_pos)
             freq[0] += num_bg
     return freq
 

@@ -12,8 +12,6 @@ from tensorflow.contrib.slim.nets import resnet_v1
 
 from nms_net import cfg
 from nms_net.roi_pooling_layer import roi_pooling_op, roi_pooling_op_grad
-
-
 from nms_net import matching_module
 
 
@@ -139,7 +137,7 @@ class Gnet(object):
             'gt_classes': (tf.int32, [None]),
             'det_classes': (tf.int32, [None]),
         }
-        if cfg.gnet.imfeats:
+        if cfg.gnet.imfeats or cfg.gnet.load_imfeats:
             batch_spec['image'] = (tf.float32, [None, None, None, 3])
         return batch_spec
 
@@ -160,6 +158,7 @@ class Gnet(object):
         self._ignore_prefixes = []
         if cfg.gnet.imfeats:
             self.imfeats, stride, self._ignore_prefixes = get_resnet(self.image)
+            #self.imfeats = tf.Print(self.imfeats, [self.imfeats, tf.reduce_max(self.imfeats), tf.reduce_mean(self.imfeats)], summarize=20, message='imfeats')
 
         with tf.variable_scope('gnet'):
             with tf.variable_scope('preprocessing'):
@@ -236,6 +235,7 @@ class Gnet(object):
                     block_idx, self.block_feats[-1],
                     weights_init, biases_init, pair_c_idxs,
                     pair_n_idxs, pw_feats, weight_reg)
+                #outfeats = tf.Print(outfeats, [outfeats, tf.reduce_max(outfeats), tf.reduce_mean(outfeats)], summarize=20, message='block_{}'.format(block_idx))
                 self.block_feats.append(outfeats)
 
             # do prediction
@@ -493,3 +493,141 @@ class Gnet(object):
         h = tf.maximum(0.0, tf.sub(y2, y1))
         intersection = tf.mul(w, h)
         return intersection
+
+
+class Knet(object):
+    def __init__(self):
+        with tf.variable_scope('knet'):
+            with tf.variable_scope('preprocessing'):
+                # generate useful box transformations (once)
+                self.dets_boxdata = self._xyxy_to_boxdata(self.dets)
+                self.gt_boxdata = self._xyxy_to_boxdata(self.gt_boxes)
+
+                # overlaps
+                self.det_anno_iou = self._iou(
+                    self.dets_boxdata, self.gt_boxdata, self.gt_crowd)
+                self.det_det_iou = self._iou(self.dets_boxdata, self.dets_boxdata)
+                if self.multiclass:
+                    # set overlaps of detection and annotations to 0 if they
+                    # have different classes, so they don't get matched in the
+                    # loss
+                    print('doing multiclass NMS')
+                    same_class = tf.equal(
+                        tf.reshape(self.det_classes, [-1, 1]),
+                        tf.reshape(self.gt_classes, [1, -1]))
+                    zeros = tf.zeros_like(self.det_anno_iou)
+                    self.det_anno_iou = tf.select(same_class,
+                                                  self.det_anno_iou, zeros)
+                else:
+                    print('doing single class NMS')
+
+                # find neighbors
+                self.neighbor_pair_idxs = tf.where(tf.greater_equal(
+                    self.det_det_iou, cfg.gnet.neighbor_thresh))
+                pair_c_idxs = self.neighbor_pair_idxs[:, 0]
+                pair_n_idxs = self.neighbor_pair_idxs[:, 1]
+
+                # generate handcrafted pairwise features
+                self.num_dets = tf.shape(self.dets)[0]
+                pw_feats = self._geometry_feats(pair_c_idxs, pair_n_idxs)
+
+            # pw_feats -> K
+            with tf.variable_scope('K'):
+                num_fc = 3
+                feats = pw_feats
+                dim = cfg.knet.pairfeat_dim
+                for i in range(1, num_fc + 1):
+                    feats = tf.contrib.layers.fully_connected(
+                        inputs=feats, num_outputs=dim,
+                        activation_fn=tf.nn.relu,
+                        weights_initializer=weights_init,
+                        weights_regularizer=weight_reg,
+                        biases_initializer=biases_init,
+                        scope='fc{}'.format(i))
+                dim = cfg.knet.feat_dim * cfg.knet.feat_dim
+                feats = tf.contrib.layers.fully_connected(
+                    inputs=feats, num_outputs=dim,
+                    activation_fn=None,
+                    weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
+                    biases_initializer=biases_init,
+                    scope='fc'.format(num_fc + 1))
+                K = tf.segment_mean(feats, pair_c_idxs, name='mean')
+
+            # imfeats -> f(x)
+            with tf.variable_scope('imfeats'):
+                self.imfeats, stride, self._ignore_prefixes = get_resnet(self.image)
+                self.det_imfeats = crop_windows(
+                        self.imfeats, self.dets_boxdata, stride)
+                self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
+
+                feats = tf.contrib.layers.fully_connected(
+                    inputs=self.det_imfeats, num_outputs=cfg.knet.feat_dim,
+                    activation_fn=tf.nn.relu,
+                    weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
+                    biases_initializer=biases_init,
+                    scope='reduce')
+
+            f_new = tf.mat_mul(K, feats)
+            with tf.variable_scope('predict'):
+                self.prediction = tf.contrib.layers.fully_connected(
+                    inputs=f_new, num_outputs=1,
+                    activation_fn=None,
+                    weights_initializer=weights_init,
+                    weights_regularizer=weight_reg,
+                    biases_initializer=biases_init,
+                    scope='reduce')
+
+        with tf.variable_scope('loss'):
+            self.loss()
+
+        # collect trainable variables
+        tvars = tf.trainable_variables()
+        self.trainable_variables = [
+                var for var in tvars
+                if (var.name.startswith('gnet') or var.name.startswith('resnet'))
+                    and not any(var.name.startswith(pref)
+                                for pref in self._ignore_prefixes)]
+
+    def loss(self):
+        # matching loss
+        self.labels, self.weights, self.det_gt_matching = \
+            matching_module.detection_matching(
+                self.det_anno_iou, self.prediction, self.gt_crowd)
+
+        # class weighting
+        if class_weights is None:
+            class_weights = np.ones((num_classes + 1), dtype=np.float32)
+        self.class_weights = tf.constant(class_weights, dtype=tf.float32)
+
+        det_crowd = tf.cond(
+                tf.shape(self.gt_crowd)[0] > 0,
+                lambda: tf.gather(self.gt_crowd, tf.maximum(self.det_gt_matching, 0)),
+                lambda: tf.zeros(tf.shape(self.labels), dtype=tf.bool))
+        det_class = tf.cond(
+                tf.shape(self.gt_crowd)[0] > 0,
+                lambda: tf.gather(tf.cast(self.gt_classes, tf.int32), tf.maximum(self.det_gt_matching, 0)),
+                lambda: tf.zeros(tf.shape(self.labels), dtype=tf.int32))
+        det_class = tf.select(
+                tf.logical_and(self.det_gt_matching >= 0,
+                               tf.logical_not(det_crowd)),
+                det_class, tf.zeros_like(det_class))
+        sample_weight = tf.gather(self.class_weights, det_class)
+        self.weights = self.weights * sample_weight
+
+        sample_losses = tf.nn.sigmoid_cross_entropy_with_logits(
+            self.prediction, self.labels)
+        weighted_losses = sample_losses * self.weights
+        self.loss_unnormed = tf.reduce_sum(
+            weighted_losses, name='cls_loss_unnormed')
+        self.loss_unnormed.set_shape([])
+        self.loss_normed = tf.reduce_mean(
+            weighted_losses, name='cls_loss_normed')
+        self.loss_normed.set_shape([])
+        if cfg.train.normalize_loss:
+            self.loss = self.loss_normed
+        else:
+            self.loss = self.loss_unnormed
+        tf.contrib.losses.add_loss(self.loss)
+

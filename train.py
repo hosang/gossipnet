@@ -111,7 +111,8 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
 
 def get_dataset():
     train_imdb = imdb.get_imdb(cfg.train.imdb, is_training=True)
-    return Dataset(train_imdb, 1, cfg.gnet.imfeats), train_imdb
+    need_imfeats = cfg.gnet.imfeats or cfg.gnet.load_imfeats
+    return Dataset(train_imdb, 1, need_imfeats), train_imdb
 
 
 def val_run(sess, net, val_imdb):
@@ -154,6 +155,7 @@ def compute_aps(scores, classes, labels, val_imdb):
     multiclass_ap = _compute_ap(scores, labels, num_objs)
 
     all_cls = np.unique(classes)
+    print(all_cls)
     cls_ap = []
     for cls in all_cls:
         mask = classes == cls
@@ -178,8 +180,8 @@ def _compute_ap(scores, labels, num_objs):
     precision = tp / (fp + tp)
     for i in range(precision.size - 2, -1, -1):
         precision[i] = max(precision[i], precision[i + 1])
-    recall = np.concatenate((recall, [recall[-1], 2]), axis=0)
-    precision = np.concatenate((precision, [0, 0]), axis=0)
+    recall = np.concatenate(([0], recall, [recall[-1], 2]), axis=0)
+    precision = np.concatenate(([1], precision, [0, 0]), axis=0)
     # computer AP
     c_recall = np.linspace(.0, 1.00, np.round((1.00 - .0) / .01) + 1, endpoint=True)
     inds = np.searchsorted(recall, c_recall, side='left')
@@ -188,7 +190,20 @@ def _compute_ap(scores, labels, num_objs):
     return ap
 
 
-def train(resume):
+def draw_rects(rects, dashed=False, color='red'):
+    import matplotlib.pyplot as plt
+    linestyle = 'dashed' if dashed else 'solid'
+    for i in range(rects.shape[0]):
+        rect = rects[i, :]
+        plt.gca().add_patch(
+            plt.Rectangle((rect[0], rect[1]), rect[2] - rect[0],
+                          rect[3] - rect[1], fill=False,
+                          edgecolor=color, linewidth=3,
+                          linestyle=linestyle)
+            )
+
+
+def train(resume, visualize):
     np.random.seed(cfg.random_seed)
     dataset, train_imdb = get_dataset()
     do_val = len(cfg.train.val_imdb) > 0
@@ -263,6 +278,50 @@ def train(resume):
             if coord.should_stop():
                 break
 
+            if visualize:
+                # don't do actual training, just visualize data
+                # TODO(jhosang): extract function for this
+                import matplotlib.pyplot as plt
+                tensors = {'train_op': train_op, 'image': net.image,
+                        'gt_boxes': net.gt_boxes, 'gt_crowd': net.gt_crowd,
+                        'dets': net.dets, 'det_matched': net.labels,
+                        'det_matching': net.det_gt_matching,
+                        'iou': net.det_anno_iou, 'scores': net.prediction,
+                        }
+                keys = tensors.keys()
+                out = sess.run([tensors[k] for k in keys], feed_dict={learning_rate: lr_gen.get_lr(it)})
+                res = dict(zip(keys, out))
+                # import pickle
+                # with open('batch{}.pkl'.format(it), 'wb') as fp:
+                #     pickle.dump(res, fp)
+
+                tp = res['det_matched'] > 0.5
+                high_scoring = res['scores'] > 0.5
+                max_iou = np.amax(res['iou'], axis=0)
+                print('max_iou (per gt)', max_iou)
+                print('argmax          ', np.argmax(res['iou'], axis=0))
+                assignment_unique, assignment_count = np.unique(
+                        res['det_matching'], return_counts=True)
+                print('matching', assignment_unique, assignment_count)
+
+                plt.subplot(2, 2, 1)
+                im = res['image'][0, ...].astype(np.uint8)
+                plt.imshow(im)
+                draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
+                draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :], color='blue')
+                plt.subplot(2, 2, 2)
+                plt.imshow(im)
+                fp = np.logical_and(high_scoring, np.logical_not(tp))
+                draw_rects(res['dets'][fp, :], color='red')
+                draw_rects(res['dets'][tp, :], color='green')
+                plt.subplot(2, 2, 3)
+                plt.imshow(im)
+                draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
+                draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :], color='blue')
+                draw_rects(res['dets'][tp, :], color='green')
+                plt.show()
+                continue
+
             _, val_total_loss, val_loss_normed, val_loss_unnormed, summary = sess.run(
                 [train_op, smoothed_optimized_loss, smoothed_loss_normed,
                  smoothed_loss_unnormed, merge_summaries_op],
@@ -301,12 +360,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--resume', default=False, action='store_true')
     parser.add_argument('-c', '--config', default='conf.yaml')
+    parser.add_argument('-v', '--visualize', default=False, action='store_true')
     args, unparsed = parser.parse_known_args()
 
     cfg_from_file(args.config)
+    if args.visualize:
+        cfg.gnet.load_imfeats = True
     pprint(cfg)
 
-    train(args.resume)
+    train(args.resume, args.visualize)
 
 
 if __name__ == '__main__':

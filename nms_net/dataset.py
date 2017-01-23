@@ -10,7 +10,7 @@ from nms_net import cfg
 DEBUG = False
 
 
-def load_roi(need_images, roi, cache=False):
+def load_roi(need_images, roi, cache=False, is_training=False):
     if DEBUG:
         print('loading ', roi)
 
@@ -18,13 +18,14 @@ def load_roi(need_images, roi, cache=False):
         # make a copy so we don't keep the loaded image around
         roi = dict(roi)
 
-    maxdet = cfg.train.max_num_detections
-    if maxdet > 0 and maxdet < roi['det_classes'].size:
-        sel = np.random.choice(roi['det_classes'].size, size=maxdet,
-                               replace=False)
-        roi['det_classes'] = roi['det_classes'][sel]
-        roi['dets'] = roi['dets'][sel, :]
-        roi['det_scores'] = roi['det_scores'][sel]
+    # if is_training:
+    #     maxdet = cfg.train.max_num_detections
+    #     if maxdet > 0 and maxdet < roi['det_classes'].size:
+    #         sel = np.random.choice(roi['det_classes'].size, size=maxdet,
+    #                                replace=False)
+    #         roi['det_classes'] = roi['det_classes'][sel]
+    #         roi['dets'] = roi['dets'][sel, :]
+    #         roi['det_scores'] = roi['det_scores'][sel]
 
     if need_images:
         roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
@@ -82,5 +83,5 @@ class Dataset(object):
         self._cur += self._batch_size
         assert len(db_inds) == 1
         roi = self._roidb[db_inds[0]]
-        roi = load_roi(self._need_images, roi)
+        roi = load_roi(self._need_images, roi, is_training=True)
         return roi

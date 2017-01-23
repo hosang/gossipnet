@@ -65,6 +65,7 @@ cfg.gnet.num_predict_fc = 3
 cfg.gnet.block_dim = 2 * 32
 cfg.gnet.predict_fc_dim = 128
 cfg.gnet.imfeats = False
+cfg.gnet.load_imfeats = False
 cfg.gnet.imfeat_dim = -1
 cfg.gnet.neighbor_feats = False
 cfg.gnet.num_pwfeat_fc = 0
