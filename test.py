@@ -17,7 +17,7 @@ import tensorflow as tf
 from tqdm import tqdm
 
 import imdb
-from nms_net import cfg
+from nms_net import cfg, tools
 from nms_net.config import cfg_from_file
 from nms_net.dataset import load_roi
 from nms_net.network import Gnet
@@ -36,6 +36,8 @@ def test_run(test_imdb):
             #log_device_placement=True,
             #allow_soft_placement=True)
     config.gpu_options.allow_growth = True
+    forward_timer = tools.Timer()
+    num_dets = num_images = 0
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
         restorer.restore(sess, cfg.test_model)
@@ -45,14 +47,20 @@ def test_run(test_imdb):
             roi = load_roi(need_image, roi)
             feed_dict = {getattr(net, name): roi[name]
                          for name in batch_spec.keys()}
+            forward_timer.tic()
             new_scores = sess.run(net.prediction, feed_dict=feed_dict)
+            forward_timer.toc()
 
+            num_dets += roi['dets'].shape[0]
+            num_images += 1
             output_detections.append({
                 'id': roi['id'],
                 'dets': roi['dets'],
                 'det_classes': roi['det_classes'],
                 'det_scores': new_scores,
             })
+    print('{:.6f}s per image with {:.1f} detections per image'.format(
+        forward_timer.average_time, num_dets / num_images))
     return output_detections
 
 

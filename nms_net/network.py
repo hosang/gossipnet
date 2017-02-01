@@ -192,22 +192,34 @@ class Gnet(object):
 
                 # generate handcrafted pairwise features
                 self.num_dets = tf.shape(self.dets)[0]
-                pw_feats = self._geometry_feats(pair_c_idxs, pair_n_idxs)
+                pw_feats = (self._geometry_feats(pair_c_idxs, pair_n_idxs)
+                            * cfg.gnet.pw_feat_multiplyer)
 
             # initializers for network weights
-            weights_init = tf.contrib.layers.xavier_initializer(
-                seed=cfg.random_seed)
+            if cfg.gnet.weight_init == 'xavier':
+                weights_init = tf.contrib.layers.xavier_initializer(
+                    seed=cfg.random_seed)
+            elif cfg.gnet.weight_init == 'caffe':
+                weights_init =tf.contrib.layers.variance_scaling_initializer(
+                    factor=1.0, mode='FAN_IN', uniform=True)
+            elif cfg.gnet.weight_init == 'msra':
+                weights_init =tf.contrib.layers.variance_scaling_initializer(
+                    factor=2.0, mode='FAN_IN', uniform=False)
+            else:
+                raise ValueError('unknown weight init {}'.format(
+                    cfg.gnet.weight_init))
             biases_init = tf.constant_initializer(cfg.gnet.bias_const_init)
 
             if cfg.gnet.num_pwfeat_fc > 0:
                 with tf.variable_scope('pw_feats'):
                     pw_feats = self._pw_feats_fc(
                             pw_feats, weights_init, biases_init, weight_reg)
+            self.pw_feats = pw_feats
 
             if cfg.gnet.imfeats:
-                self.det_imfeats = crop_windows(
+                self.roifeats = crop_windows(
                         self.imfeats, self.dets_boxdata, stride)
-                self.det_imfeats = tf.contrib.layers.flatten(self.det_imfeats)
+                self.det_imfeats = tf.contrib.layers.flatten(self.roifeats)
                 with tf.variable_scope('reduce_imfeats'):
                     if cfg.gnet.imfeat_dim > 0:
                         self.det_imfeats = tf.contrib.layers.fully_connected(

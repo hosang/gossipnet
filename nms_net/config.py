@@ -12,7 +12,7 @@ cfg.random_seed = 42
 cfg.prefetch_q_size = 20
 cfg.log_dir = './log'
 cfg.ROOT_DIR = os.path.normpath(os.path.join(this_path, '..'))
-cfg.resnet_type = '50'
+cfg.resnet_type = '101'
 cfg.imfeat_crop_width = 7
 cfg.imfeat_crop_height = 7
 cfg.pixel_mean = [123.68, 116.779, 103.939]
@@ -46,6 +46,7 @@ cfg.train.val_imdb = ''
 cfg.train.val_iter = 10000
 cfg.train.max_num_detections = -1
 cfg.train.normalize_loss = False
+cfg.train.histograms = False
 
 # test parameters
 cfg.test = edict()
@@ -71,8 +72,10 @@ cfg.gnet.neighbor_feats = False
 cfg.gnet.num_pwfeat_fc = 0
 cfg.gnet.pwfeat_dim = 256
 cfg.gnet.pwfeat_narrow_dim = 64
+cfg.gnet.weight_init = 'xavier'
 cfg.gnet.bias_const_init = 0.0
 cfg.gnet.freeze_n_imfeat_layers = 3
+cfg.gnet.pw_feat_multiplyer = 1.0
 
 
 def _merge_a_into_b(a, b):

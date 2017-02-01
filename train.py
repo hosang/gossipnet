@@ -229,6 +229,13 @@ def train(resume, visualize):
         tf.summary.scalar('loss_unnormed', net.loss_unnormed)
         tf.summary.scalar('lr', learning_rate)
         tf.summary.scalar('q_size', q_size)
+        if cfg.train.histograms:
+            tf.summary.histogram('roi_feats', net.roifeats)
+            tf.summary.histogram('det_imfeats', net.det_imfeats)
+            tf.summary.histogram('pw_feats', net.pw_feats)
+            for i, blockout in enumerate(net.block_feats):
+                tf.summary.histogram('block{:02d}'.format(i + 1),
+                                     blockout)
         merge_summaries_op = tf.summary.merge_all()
 
     with tf.name_scope('averaging'):
