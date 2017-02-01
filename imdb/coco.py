@@ -45,6 +45,7 @@ def load_coco(split, year):
         'coco_2014_debug': 'train2014',
         'coco_2014_val': 'val2014',
         'coco_2014_minival': 'val2014',
+        'coco_2014_valminusminival': 'val2014',
     }
     roidb = load_im_info(coco, path_to_images[name])
     # gt_splits = {'train', 'val', 'minival', 'minival2'}
@@ -82,7 +83,7 @@ def load_detections(coco, imdb_name, detector, cat_id_to_class_ind):
         scores = []
         for cat_i, cat_id in enumerate(cat_ids):
             t_dets = dets[cat_i][i]
-            if t_dets.size == 0:
+            if (isinstance(t_dets, list) and len(t_dets) == 0) or t_dets.size == 0:
                 continue
             n = t_dets.shape[0]
             cls_ind = cat_id_to_class_ind[cat_id]

@@ -52,12 +52,14 @@ def only_keep_class(imdb, class_name):
             roi['gt_classes'] = roi['gt_classes'][mask].copy()
             roi['gt_boxes'] = roi['gt_boxes'][mask, :].copy()
             roi['gt_crowd'] = roi['gt_crowd'][mask].copy()
+            roi['gt_classes'][:] = 1
 
         if 'det_classes' in roi:
             mask = roi['det_classes'] == cls_ind
             roi['det_classes'] = roi['det_classes'][mask].copy()
             roi['dets'] = roi['dets'][mask, :].copy()
             roi['det_scores'] = roi['det_scores'][mask].copy()
+            roi['det_classes'][:] = 1
             validate_boxes(roi['dets'], width=roi['width'], height=roi['height'])
 
 
