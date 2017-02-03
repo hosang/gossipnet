@@ -115,6 +115,35 @@ def get_dataset():
     return Dataset(train_imdb, 1, need_imfeats), train_imdb
 
 
+def dump_debug_info(sess, net, val_imdb, iter):
+    roi = val_imdb['roidb'][0]
+    assert roi['dets'].size > 0
+    batch_spec = net.get_batch_spec(num_classes=val_imdb['num_classes'])
+    need_image = 'image' in batch_spec
+    roi = load_roi(need_image, roi)
+
+    feed_dict = {getattr(net, name): roi[name]
+                 for name in batch_spec.keys()}
+    image, imfeats, roifeats, det_imfeats, prediction = sess.run(
+            [net.image, net.imfeats, net.roifeats, net.det_imfeats,
+             net.prediction],
+            feed_dict=feed_dict)
+
+    dbg_data = {
+        'roi': roi,
+        'image': image,
+        'imfeats': imfeats,
+        'roifeats': roifeats,
+        'det_imfeats': det_imfeats,
+        'prediction': prediction,
+    }
+    import pickle
+    fn = 'gnet-{}-dbg.pkl'.format(iter)
+    with open(fn, 'wb') as fp:
+        pickle.dump(dbg_data, fp)
+    print('wrote  {}'.format(fn))
+
+
 def val_run(sess, net, val_imdb):
     roidb = val_imdb['roidb']
     batch_spec = net.get_batch_spec(num_classes=val_imdb['num_classes'])
@@ -207,8 +236,6 @@ def train(resume, visualize):
     np.random.seed(cfg.random_seed)
     dataset, train_imdb = get_dataset()
     do_val = len(cfg.train.val_imdb) > 0
-    if do_val:
-        val_imdb = imdb.get_imdb(cfg.train.val_imdb, is_training=False)
 
     class_weights = class_equal_weights(train_imdb)
     preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
@@ -223,10 +250,15 @@ def train(resume, visualize):
     optimized_loss = tf.contrib.losses.get_total_loss()
     learning_rate, train_op = get_optimizer(optimized_loss, net.trainable_variables)
 
+    if do_val:
+        val_imdb = imdb.get_imdb(cfg.train.val_imdb, is_training=False)
+        val_net = Gnet(num_classes=val_imdb['num_classes'], reuse=True)
+
     with tf.name_scope('summaries'):
-        tf.summary.scalar('loss', net.loss)
-        tf.summary.scalar('loss_normed', net.loss_normed)
-        tf.summary.scalar('loss_unnormed', net.loss_unnormed)
+        tf.summary.scalar('loss', optimized_loss)
+        tf.summary.scalar('data_loss', net.loss)
+        tf.summary.scalar('data_loss_normed', net.loss_normed)
+        tf.summary.scalar('data_loss_unnormed', net.loss_unnormed)
         tf.summary.scalar('lr', learning_rate)
         tf.summary.scalar('q_size', q_size)
         if cfg.train.histograms:
@@ -340,8 +372,9 @@ def train(resume, visualize):
                       datetime.now(), it, lr_gen.get_lr(it), val_total_loss, val_loss_normed, val_loss_unnormed))
 
             if do_val and it % cfg.train.val_iter == 0:
+                # dump_debug_info(sess, val_net, val_imdb, it)
                 print('{}  starting validation'.format(datetime.now()))
-                val_map, mc_ap, pc_ap = val_run(sess, net, val_imdb)
+                val_map, mc_ap, pc_ap = val_run(sess, val_net, val_imdb)
                 print('{}  iter {:6d}   validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
                       datetime.now(), it, val_map, mc_ap))
 

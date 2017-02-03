@@ -49,7 +49,7 @@ def weighted_logistic_loss(logits, labels, instance_weights):
             logits * instance_weights, labels)
 
 
-def get_resnet(image_tensor):
+def get_resnet(image_tensor, reuse):
     with slim.arg_scope(resnet_v1.resnet_arg_scope(is_training=False)):
         mean = tf.constant(cfg.pixel_mean, dtype=tf.float32,
                            shape=[1, 1, 1, 3], name='img_mean')
@@ -58,7 +58,8 @@ def get_resnet(image_tensor):
         assert cfg.resnet_type == '101'
         net_fun = resnet_v1.resnet_v1_101
         net, end_points = net_fun(image,
-                                  global_pool=False, output_stride=16)
+                                  global_pool=False, output_stride=16,
+                                  reuse=reuse)
         layer_name = 'resnet_v1_{}/block3/unit_22/bottleneck_v1'.format(
             cfg.resnet_type)
         block2_out = end_points[layer_name]
@@ -142,7 +143,7 @@ class Gnet(object):
         return batch_spec
 
     def __init__(self, num_classes, class_weights=None, batch=None,
-                 weight_reg=None):
+                 weight_reg=None, reuse=False):
         self.num_classes = num_classes
         self.multiclass = num_classes > 1
 
@@ -157,10 +158,11 @@ class Gnet(object):
 
         self._ignore_prefixes = []
         if cfg.gnet.imfeats:
-            self.imfeats, stride, self._ignore_prefixes = get_resnet(self.image)
+            self.imfeats, stride, self._ignore_prefixes = get_resnet(
+                self.image, reuse=reuse)
             #self.imfeats = tf.Print(self.imfeats, [self.imfeats, tf.reduce_max(self.imfeats), tf.reduce_mean(self.imfeats)], summarize=20, message='imfeats')
 
-        with tf.variable_scope('gnet'):
+        with tf.variable_scope('gnet', reuse=reuse):
             with tf.variable_scope('preprocessing'):
                 # generate useful box transformations (once)
                 self.dets_boxdata = self._xyxy_to_boxdata(self.dets)
