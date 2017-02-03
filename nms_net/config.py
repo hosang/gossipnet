@@ -47,6 +47,7 @@ cfg.train.val_iter = 10000
 cfg.train.max_num_detections = -1
 cfg.train.normalize_loss = False
 cfg.train.histograms = False
+cfg.train.loss_multiplyer = 1.0
 
 # test parameters
 cfg.test = edict()

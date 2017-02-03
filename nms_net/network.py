@@ -304,9 +304,9 @@ class Gnet(object):
                     weighted_losses, name='cls_loss_normed')
                 self.loss_normed.set_shape([])
                 if cfg.train.normalize_loss:
-                    self.loss = self.loss_normed
+                    self.loss = self.loss_normed * cfg.train.loss_multiplyer
                 else:
-                    self.loss = self.loss_unnormed
+                    self.loss = self.loss_unnormed * cfg.train.loss_multiplyer
                 tf.contrib.losses.add_loss(self.loss)
 
         # collect trainable variables
