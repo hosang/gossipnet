@@ -40,7 +40,9 @@ def test_run(test_imdb):
     num_dets = num_images = 0
     with tf.Session(config=config) as sess:
         tf.global_variables_initializer().run()
+        tf.local_variables_initializer().run()
         restorer.restore(sess, cfg.test_model)
+        tf.report_uninitialized_variables()
         for i, roi in enumerate(tqdm(roidb)):
             if 'dets' not in roi or roi['dets'].size == 0:
                 continue
