@@ -10,13 +10,12 @@ from nms_net import cfg
 DEBUG = False
 
 
-def load_roi(need_images, roi, cache=False, is_training=False):
+def load_roi(need_images, roi, is_training=False):
     if DEBUG:
         print('loading ', roi)
 
-    if not cache:
-        # make a copy so we don't keep the loaded image around
-        roi = dict(roi)
+    # make a copy so we don't keep the loaded image around
+    roi = dict(roi)
 
     # if is_training:
     #     maxdet = cfg.train.max_num_detections
@@ -30,7 +29,11 @@ def load_roi(need_images, roi, cache=False, is_training=False):
     if need_images:
         roi['image'], im_scale = load_image(roi['filename'], roi['flipped'])
         roi['image'] = roi['image'][None, ...]
-        scale_boxes(roi, im_scale)
+        # don't do multiplications inplace
+        if 'dets' in roi:
+            roi['dets'] = roi['dets'] * im_scale
+        if 'gt_boxes' in roi:
+            roi['gt_boxes'] = roi['gt_boxes'] * im_scale
     return roi
 
 
@@ -52,13 +55,6 @@ def load_image(path, flipped):
         im = im[:, ::-1, :].copy()
     im = imresize(im, im_scale)
     return im, im_scale
-
-
-def scale_boxes(roi, im_scale):
-    if 'dets' in roi:
-        roi['dets'] *= im_scale
-    if 'gt_boxes' in roi:
-        roi['gt_boxes'] *= im_scale
 
 
 class Dataset(object):
