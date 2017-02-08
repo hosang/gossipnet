@@ -72,7 +72,7 @@ def get_resnet(image_tensor, reuse):
         ignore_prefixes = layer_prefixes[:cfg.gnet.freeze_n_imfeat_layers]
         idx = layer_prefixes.index('resnet_v1_101/block3/unit_22')
         ignore_prefixes += layer_prefixes[idx + 1:]
-        return block2_out, stride, ignore_prefixes
+        return block2_out, stride, ignore_prefixes, end_points
 
 
 def enlarge_windows(boxdata, padding=0.5):
@@ -115,7 +115,7 @@ def crop_windows(imfeats, boxdata, stride):
     detection_feats, _ = roi_pooling_op.roi_pool(
         imfeats, frcn_boxes, pooled_height=cfg.imfeat_crop_height,
         pooled_width=cfg.imfeat_crop_width, spatial_scale=1.0 / stride)
-    return detection_feats
+    return detection_feats, frcn_boxes
 
 
 class Gnet(object):
@@ -158,9 +158,8 @@ class Gnet(object):
 
         self._ignore_prefixes = []
         if cfg.gnet.imfeats:
-            self.imfeats, stride, self._ignore_prefixes = get_resnet(
+            self.imfeats, stride, self._ignore_prefixes, self.resnet_endpoints = get_resnet(
                 self.image, reuse=reuse)
-            #self.imfeats = tf.Print(self.imfeats, [self.imfeats, tf.reduce_max(self.imfeats), tf.reduce_mean(self.imfeats)], summarize=20, message='imfeats')
 
         with tf.variable_scope('gnet', reuse=reuse):
             with tf.variable_scope('preprocessing'):
@@ -219,7 +218,7 @@ class Gnet(object):
             self.pw_feats = pw_feats
 
             if cfg.gnet.imfeats:
-                self.roifeats = crop_windows(
+                self.roifeats, self.frcn_boxes = crop_windows(
                         self.imfeats, self.dets_boxdata, stride)
                 self.det_imfeats = tf.contrib.layers.flatten(self.roifeats)
                 with tf.variable_scope('reduce_imfeats'):
