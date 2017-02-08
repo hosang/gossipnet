@@ -19,7 +19,7 @@ import imdb
 from nms_net import cfg
 from nms_net.network import Gnet
 from nms_net.config import cfg_from_file
-from nms_net.dataset import Dataset, load_roi
+from nms_net.dataset import ShuffledDataset, load_roi
 from nms_net.class_weights import class_equal_weights
 
 
@@ -112,33 +112,19 @@ def start_preloading(sess, enqueue_op, dataset, placeholders):
 def get_dataset():
     train_imdb = imdb.get_imdb(cfg.train.imdb, is_training=True)
     need_imfeats = cfg.gnet.imfeats or cfg.gnet.load_imfeats
-    return Dataset(train_imdb, 1, need_imfeats), train_imdb
+    return ShuffledDataset(train_imdb, 1, need_imfeats), train_imdb
 
 
-def dump_debug_info(sess, net, val_imdb, iter):
-    roi = val_imdb['roidb'][0]
-    assert roi['dets'].size > 0
-    batch_spec = net.get_batch_spec(num_classes=val_imdb['num_classes'])
-    need_image = 'image' in batch_spec
-    roi = load_roi(need_image, roi)
+def dump_debug_info(sess, net, it):
+    keys = ['dets', 'det_scores', 'det_classes',
+            'gt_boxes', 'gt_crowd', 'gt_classes',
+            'image', 'imfeats', 'roifeats',
+            'det_imfeats', 'prediction', 'frcn_boxes']
+    res = sess.run([getattr(net, k) for k in keys])
 
-    feed_dict = {getattr(net, name): roi[name]
-                 for name in batch_spec.keys()}
-    image, imfeats, roifeats, det_imfeats, prediction = sess.run(
-            [net.image, net.imfeats, net.roifeats, net.det_imfeats,
-             net.prediction],
-            feed_dict=feed_dict)
-
-    dbg_data = {
-        'roi': roi,
-        'image': image,
-        'imfeats': imfeats,
-        'roifeats': roifeats,
-        'det_imfeats': det_imfeats,
-        'prediction': prediction,
-    }
+    dbg_data = dict(zip(keys, res))
     import pickle
-    fn = 'gnet-{}-dbg.pkl'.format(iter)
+    fn = 'gnet-{}-dbg.pkl'.format(it)
     with open(fn, 'wb') as fp:
         pickle.dump(dbg_data, fp)
     print('wrote  {}'.format(fn))
@@ -186,7 +172,7 @@ def compute_aps(scores, classes, labels, val_imdb):
     all_cls = np.unique(classes)
     print(all_cls)
     cls_ap = []
-    for cls in all_cls:
+    for cls in iter(all_cls):
         mask = classes == cls
         c_scores = scores[mask]
         c_labels = labels[mask]
@@ -212,7 +198,8 @@ def _compute_ap(scores, labels, num_objs):
     recall = np.concatenate(([0], recall, [recall[-1], 2]), axis=0)
     precision = np.concatenate(([1], precision, [0, 0]), axis=0)
     # computer AP
-    c_recall = np.linspace(.0, 1.00, np.round((1.00 - .0) / .01) + 1, endpoint=True)
+    c_recall = np.linspace(.0, 1.00, np.round((1.00 - .0) / .01) + 1,
+                           endpoint=True)
     inds = np.searchsorted(recall, c_recall, side='left')
     c_precision = precision[inds]
     ap = np.average(c_precision) * 100
@@ -238,7 +225,8 @@ def train(resume, visualize):
     do_val = len(cfg.train.val_imdb) > 0
 
     class_weights = class_equal_weights(train_imdb)
-    preloaded_batch, enqueue_op, enqueue_placeholders, q_size = setup_preloading(
+    (preloaded_batch, enqueue_op, enqueue_placeholders,
+     q_size) = setup_preloading(
             Gnet.get_batch_spec(train_imdb['num_classes']))
     reg = tf.contrib.layers.l2_regularizer(cfg.train.weight_decay)
     net = Gnet(num_classes=train_imdb['num_classes'], batch=preloaded_batch,
@@ -248,8 +236,10 @@ def train(resume, visualize):
     # reg_op = tf.reduce_mean(reg_ops)
     # optimized_loss = net.loss + reg_op
     optimized_loss = tf.contrib.losses.get_total_loss()
-    learning_rate, train_op = get_optimizer(optimized_loss, net.trainable_variables)
+    learning_rate, train_op = get_optimizer(
+        optimized_loss, net.trainable_variables)
 
+    val_net = val_imdb = None
     if do_val:
         val_imdb = imdb.get_imdb(cfg.train.val_imdb, is_training=False)
         val_net = Gnet(num_classes=val_imdb['num_classes'], reuse=True)
@@ -272,7 +262,8 @@ def train(resume, visualize):
 
     with tf.name_scope('averaging'):
         ema = tf.train.ExponentialMovingAverage(decay=0.7)
-        maintain_averages_op = ema.apply([net.loss_normed, net.loss_unnormed, optimized_loss])
+        maintain_averages_op = ema.apply(
+            [net.loss_normed, net.loss_unnormed, optimized_loss])
         # update moving averages after every loss evaluation
         with tf.control_dependencies([train_op]):
             train_op = tf.group(maintain_averages_op)
@@ -280,11 +271,13 @@ def train(resume, visualize):
         smoothed_loss_unnormed = ema.average(net.loss_unnormed)
         smoothed_optimized_loss = ema.average(optimized_loss)
 
+    restorer = ckpt = None
     if resume:
         ckpt = tf.train.get_checkpoint_state('./')
         restorer = tf.train.Saver()
     elif cfg.gnet.imfeats:
-        variables_to_restore = slim.get_variables_to_restore(include=["resnet_v1"])
+        variables_to_restore = slim.get_variables_to_restore(
+            include=["resnet_v1"])
         variables_to_exclude = \
             slim.get_variables_by_suffix('Adam_1', scope='resnet_v1') + \
             slim.get_variables_by_suffix('Adam', scope='resnet_v1') + \
@@ -295,9 +288,6 @@ def train(resume, visualize):
     saver = tf.train.Saver(max_to_keep=None)
     model_manager = ModelManager()
     config = tf.ConfigProto()
-            #log_device_placement=True,
-            #allow_soft_placement=True)
-    # config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         train_writer = tf.summary.FileWriter(cfg.log_dir, sess.graph)
         tf.global_variables_initializer().run()
@@ -308,8 +298,8 @@ def train(resume, visualize):
         start_iter = 1
         if resume:
             restorer.restore(sess, ckpt.model_checkpoint_path)
-            start_iter = sess.run(
-                    tf.get_default_graph().get_tensor_by_name("global_step:0")) + 1
+            tensor = tf.get_default_graph().get_tensor_by_name("global_step:0")
+            start_iter = sess.run(tensor + 1)
         elif cfg.gnet.imfeats:
             restorer.restore(sess, cfg.train.pretrained_model)
 
@@ -319,67 +309,34 @@ def train(resume, visualize):
 
             if visualize:
                 # don't do actual training, just visualize data
-                # TODO(jhosang): extract function for this
-                import matplotlib.pyplot as plt
-                tensors = {'train_op': train_op, 'image': net.image,
-                        'gt_boxes': net.gt_boxes, 'gt_crowd': net.gt_crowd,
-                        'dets': net.dets, 'det_matched': net.labels,
-                        'det_matching': net.det_gt_matching,
-                        'iou': net.det_anno_iou, 'scores': net.prediction,
-                        }
-                keys = tensors.keys()
-                out = sess.run([tensors[k] for k in keys], feed_dict={learning_rate: lr_gen.get_lr(it)})
-                res = dict(zip(keys, out))
-                # import pickle
-                # with open('batch{}.pkl'.format(it), 'wb') as fp:
-                #     pickle.dump(res, fp)
-
-                tp = res['det_matched'] > 0.5
-                high_scoring = res['scores'] > 0.5
-                max_iou = np.amax(res['iou'], axis=0)
-                print('max_iou (per gt)', max_iou)
-                print('argmax          ', np.argmax(res['iou'], axis=0))
-                assignment_unique, assignment_count = np.unique(
-                        res['det_matching'], return_counts=True)
-                print('matching', assignment_unique, assignment_count)
-
-                plt.subplot(2, 2, 1)
-                im = res['image'][0, ...].astype(np.uint8)
-                plt.imshow(im)
-                draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
-                draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :], color='blue')
-                plt.subplot(2, 2, 2)
-                plt.imshow(im)
-                fp = np.logical_and(high_scoring, np.logical_not(tp))
-                draw_rects(res['dets'][fp, :], color='red')
-                draw_rects(res['dets'][tp, :], color='green')
-                plt.subplot(2, 2, 3)
-                plt.imshow(im)
-                draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
-                draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :], color='blue')
-                draw_rects(res['dets'][tp, :], color='green')
-                plt.show()
+                visualize_detections(sess, it, learning_rate, lr_gen, net,
+                                     train_op)
                 continue
 
-            _, val_total_loss, val_loss_normed, val_loss_unnormed, summary = sess.run(
+            (_, val_total_loss, val_loss_normed, val_loss_unnormed,
+             summary) = sess.run(
                 [train_op, smoothed_optimized_loss, smoothed_loss_normed,
                  smoothed_loss_unnormed, merge_summaries_op],
                 feed_dict={learning_rate: lr_gen.get_lr(it)})
             train_writer.add_summary(summary, it)
 
             if it % cfg.train.display_iter == 0:
-                print('{}  iter {:6d}   lr {:8g}   opt loss {:8g}     data loss normalized {:8g}   unnormalized {:8g}'.format(
-                      datetime.now(), it, lr_gen.get_lr(it), val_total_loss, val_loss_normed, val_loss_unnormed))
+                print(('{}  iter {:6d}   lr {:8g}   opt loss {:8g}     '
+                       'data loss normalized {:8g}   '
+                       'unnormalized {:8g}').format(
+                    datetime.now(), it, lr_gen.get_lr(it), val_total_loss,
+                    val_loss_normed, val_loss_unnormed))
 
             if do_val and it % cfg.train.val_iter == 0:
-                # dump_debug_info(sess, val_net, val_imdb, it)
                 print('{}  starting validation'.format(datetime.now()))
                 val_map, mc_ap, pc_ap = val_run(sess, val_net, val_imdb)
-                print('{}  iter {:6d}   validation pass:   mAP {:5.1f}   multiclass AP {:5.1f}'.format(
+                print(('{}  iter {:6d}   validation pass:   mAP {:5.1f}   '
+                       'multiclass AP {:5.1f}').format(
                       datetime.now(), it, val_map, mc_ap))
 
                 save_path = saver.save(sess, net.name, global_step=it)
                 print('wrote model to {}'.format(save_path))
+                # dump_debug_info(sess, net, it)
                 model_manager.add(it, val_map, save_path)
                 model_manager.print_summary()
                 model_manager.write_link_to_best('./gnet_best')
@@ -387,6 +344,7 @@ def train(resume, visualize):
             elif it % cfg.train.save_iter == 0 or it == cfg.train.num_iter:
                 save_path = saver.save(sess, net.name, global_step=it)
                 print('wrote model to {}'.format(save_path))
+                # dump_debug_info(sess, net, it)
 
         coord.request_stop()
         coord.join()
@@ -394,6 +352,49 @@ def train(resume, visualize):
     if do_val:
         print('summary of validation performance')
         model_manager.print_summary()
+
+
+def visualize_detections(sess, it, learning_rate, lr_gen, net, train_op):
+    import matplotlib.pyplot as plt
+    tensors = {'train_op': train_op, 'image': net.image,
+               'gt_boxes': net.gt_boxes, 'gt_crowd': net.gt_crowd,
+               'dets': net.dets, 'det_matched': net.labels,
+               'det_matching': net.det_gt_matching,
+               'iou': net.det_anno_iou, 'scores': net.prediction,
+               }
+    keys = tensors.keys()
+    out = sess.run([tensors[k] for k in keys],
+                   feed_dict={learning_rate: lr_gen.get_lr(it)})
+    res = dict(zip(keys, out))
+    # import pickle
+    # with open('batch{}.pkl'.format(it), 'wb') as fp:
+    #     pickle.dump(res, fp)
+    tp = res['det_matched'] > 0.5
+    high_scoring = res['scores'] > 0.5
+    max_iou = np.amax(res['iou'], axis=0)
+    print('max_iou (per gt)', max_iou)
+    print('argmax          ', np.argmax(res['iou'], axis=0))
+    assignment_unique, assignment_count = np.unique(
+        res['det_matching'], return_counts=True)
+    print('matching', assignment_unique, assignment_count)
+    plt.subplot(2, 2, 1)
+    im = res['image'][0, ...].astype(np.uint8)
+    plt.imshow(im)
+    draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
+    draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :],
+               color='blue')
+    plt.subplot(2, 2, 2)
+    plt.imshow(im)
+    fp = np.logical_and(high_scoring, np.logical_not(tp))
+    draw_rects(res['dets'][fp, :], color='red')
+    draw_rects(res['dets'][tp, :], color='green')
+    plt.subplot(2, 2, 3)
+    plt.imshow(im)
+    draw_rects(res['gt_boxes'][res['gt_crowd'], :], dashed=True, color='blue')
+    draw_rects(res['gt_boxes'][np.logical_not(res['gt_crowd']), :],
+               color='blue')
+    draw_rects(res['dets'][tp, :], color='green')
+    plt.show()
 
 
 def main():
