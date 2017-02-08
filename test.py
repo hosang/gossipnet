@@ -23,6 +23,22 @@ from nms_net.dataset import load_roi
 from nms_net.network import Gnet
 
 
+def dump_debug_info(sess, net, batch_spec, model_file):
+    with open('{}-dbg.pkl'.format(model_file), 'rb') as fp:
+        batch_data = pickle.load(fp)
+
+    feed_dict = {getattr(net, name): batch_data[name]
+                 for name in batch_spec.keys()}
+    keys = batch_data.keys()
+    res = sess.run([getattr(net, k) for k in keys], feed_dict=feed_dict)
+
+    dbg_data = dict(zip(keys, res))
+    fn = '{}-dbg-test.pkl'.format(model_file)
+    with open(fn, 'wb') as fp:
+        pickle.dump(dbg_data, fp)
+    print('wrote {}'.format(fn))
+
+
 def test_run(test_imdb):
     roidb = test_imdb['roidb']
     batch_spec = Gnet.get_batch_spec(num_classes=test_imdb['num_classes'])
@@ -57,7 +73,7 @@ def test_run(test_imdb):
             num_images += 1
             output_detections.append({
                 'id': roi['id'],
-                'dets': roi['dets'],
+                'dets': roi['dets'] / roi['im_scale'],
                 'det_classes': roi['det_classes'],
                 'det_scores': new_scores,
             })
