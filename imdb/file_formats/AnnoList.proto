@@ -1,0 +1,78 @@
+syntax = "proto2";
+
+package protobuf_annolist;
+
+//option java_package = "com.example.tutorial";
+option java_outer_classname = "AnnoListPb";
+
+message Attribute {
+	optional int32 id = 1;
+	optional int32 val = 2;
+	optional float fval = 3;
+	optional string strval = 4;
+}
+
+// MA: this is to map id of attribute value to string
+message IdStrPair {
+	optional int32 id = 1;
+	optional string s = 2;
+}
+
+message AttributeDesc {
+	optional string name = 1;
+	optional int32 id = 2;
+	optional int32 dtype = 3;
+	repeated IdStrPair val_to_str = 4;
+}
+
+// message AnnoRectAttribute {
+// 	// attributes like "gender", "ptype", "activity", values are coverted to int by default,
+// 	// add suffix "_str" and "_float" to convert to string and float respectively 
+
+// 	optional string name = 1;
+// 	optional string val = 2;
+// }
+
+message AnnoPoint {
+	optional float x = 1;
+	optional float y = 2;
+	optional int32 id = 3;
+	optional bool is_visible = 4;
+}
+
+message AnnoRect {
+  // left, top, right, bottom 
+  optional float x1 = 1;
+  optional float y1 = 2;
+  optional float x2 = 3;
+  optional float y2 = 4;
+
+  // e.g. detector score 
+  optional float score = 5;
+    
+  // id, e.g. to associate annorects in different images during tracking
+  optional int32 id = 6;
+  optional int32 track_id = 11;
+
+  // attributes
+  //repeated AnnoRectAttribute attribute = 12;
+  repeated Attribute attribute = 12;
+
+  repeated AnnoPoint point = 14;
+}
+
+message Annotation {
+  optional string imageName = 1;
+
+  repeated AnnoRect rect = 2;
+
+  // image width and height 
+  optional int32 imgWidth = 3;
+  optional int32 imgHeight = 4;
+}
+
+message AnnoList {
+  repeated Annotation annotation = 1;	
+
+  repeated AttributeDesc attribute_desc = 2;
+}

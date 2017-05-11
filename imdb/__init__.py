@@ -10,6 +10,7 @@ except ImportError:
     import pickle
 
 from imdb.coco import load_coco
+from imdb.pal import load_pal
 import imdb.tools
 from nms_net import cfg
 
@@ -32,6 +33,15 @@ for year in ['2015']:
     for split in ['test', 'test-dev']:
         name = 'coco_{}_{}'.format(year, split)
         _imdbs[name] = lambda split=split, year=year: load_coco(split, year)
+
+# city persons
+imsize = (2048, 1024)
+for version in ['', '_synth', '_synth25k']:
+    for split in ['train', 'val', 'test']:
+        name = 'citypersons{}_{}'.format(version, split)
+        has_gt = split != 'test'
+        _imdbs[name] = lambda name=name, has_gt=has_gt, imsize=imsize: load_pal(
+            name, has_gt, imsize=imsize)
 
 
 def get_imdb(name, is_training):
@@ -92,3 +102,7 @@ def prepro_train(train_imdb):
     imdb.tools.print_stats(train_imdb)
     print('done')
 
+
+if __name__ == '__main__':
+    cfg.train.detector = 'FRCN_train'
+    imdb = get_imdb('citypersons_synth_train', True)

@@ -86,7 +86,7 @@ def print_stats(imdb):
             num_annos += roi['gt_boxes'].shape[0] - crowd
         if 'dets' in roi:
             num_dets += roi['dets'].shape[0]
-    print('{} images: {} detections, {} crowd annotations, {} non-crowd annotations'.format(
+    print('{:d} images: {:d} detections, {:d} crowd annotations, {:d} non-crowd annotations'.format(
         len(roidb), num_dets, num_crowd, num_annos))
 
 
