@@ -81,7 +81,7 @@ def print_stats(imdb):
     num_dets = 0
     for roi in roidb:
         if 'gt_crowd' in roi:
-            crowd = np.sum(roi['gt_crowd'])
+            crowd = int(np.sum(roi['gt_crowd']))
             num_crowd += crowd
             num_annos += roi['gt_boxes'].shape[0] - crowd
         if 'dets' in roi:
@@ -118,9 +118,9 @@ def get_class_counts(imdb):
             num_pos = roi['gt_classes'].size
             for cls in roi['gt_classes']:
                 freq[cls] += 1
-        num_bg = 0
         if 'det_classes' in roi:
             num_bg = max(0, roi['det_classes'].size - num_pos)
             freq[0] += num_bg
     return freq
+
 

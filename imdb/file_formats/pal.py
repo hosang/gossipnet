@@ -7,6 +7,7 @@ from . import AnnoList_pb2
 
 Annotation = namedtuple('Annotation', ['rect', 'ignore', 'score'])
 
+
 def _load_proto(filename):
     _annolist = AnnoList_pb2.AnnoList()
 
@@ -17,16 +18,20 @@ def _load_proto(filename):
     return _annolist
 
 
-def load(filename, id_generator, min_height, min_vis):
+def load(filename, min_height, min_vis, use_order_as_ids=True,
+         id_generator=None):
     _annolist = _load_proto(filename)
     annotations = []
     seen_imids = set()
 
     num_boxes = num_too_small = num_too_occluded = num_ignore = 0
 
-    for _a in _annolist.annotation:
+    for idx, _a in enumerate(_annolist.annotation):
         image_filename = _a.imageName
-        im_id = id_generator[image_filename]
+        if use_order_as_ids:
+            im_id = idx
+        else:
+            im_id = id_generator[image_filename]
         annos = []
 
         for _r in _a.rect:
@@ -90,8 +95,7 @@ def load(filename, id_generator, min_height, min_vis):
         })
 
     print('{} images with {} boxes; of those: {} ignore, {} too small, '
-          '{} too occluded; {} boxes remaining'.format(
+          '{} too occluded'.format(
               len(annotations), num_boxes, num_ignore, num_too_small,
-              num_too_occluded,
-              num_boxes - num_ignore - num_too_small - num_too_occluded))
+              num_too_occluded))
     return annotations

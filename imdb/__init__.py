@@ -104,5 +104,8 @@ def prepro_train(train_imdb):
 
 
 if __name__ == '__main__':
+    from imdb import vis
     cfg.train.detector = 'FRCN_train'
-    imdb = get_imdb('citypersons_synth_train', True)
+    a_imdb = get_imdb('citypersons_train', True)
+    vis.visualize_roidb(a_imdb['roidb'])
+
