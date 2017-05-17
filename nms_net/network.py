@@ -129,15 +129,18 @@ class Gnet(object):
     image = None
 
     @staticmethod
-    def get_batch_spec(num_classes):
+    def get_batch_spec(num_classes, is_training=True):
         batch_spec = {
             'dets': (tf.float32, [None, 4]),
             'det_scores': (tf.float32, [None]),
-            'gt_boxes': (tf.float32, [None, 4]),
-            'gt_crowd': (tf.bool, [None]),
-            'gt_classes': (tf.int32, [None]),
             'det_classes': (tf.int32, [None]),
         }
+        if is_training:
+            batch_spec.update({
+                'gt_boxes': (tf.float32, [None, 4]),
+                'gt_crowd': (tf.bool, [None]),
+                'gt_classes': (tf.int32, [None]),
+            })
         if cfg.gnet.imfeats or cfg.gnet.load_imfeats:
             batch_spec['image'] = (tf.float32, [None, None, None, 3])
         return batch_spec

@@ -41,7 +41,8 @@ def dump_debug_info(sess, net, batch_spec, model_file):
 
 def test_run(test_imdb):
     roidb = test_imdb['roidb']
-    batch_spec = Gnet.get_batch_spec(num_classes=test_imdb['num_classes'])
+    batch_spec = Gnet.get_batch_spec(num_classes=test_imdb['num_classes'],
+                                     is_training=False)
     need_image = 'image' in batch_spec
 
     net = Gnet(num_classes=test_imdb['num_classes'])
