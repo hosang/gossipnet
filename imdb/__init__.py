@@ -39,7 +39,7 @@ imsize = (2048, 1024)
 for version in ['', '_synth', '_synth25k']:
     for split in ['train', 'val', 'test']:
         name = 'citypersons{}_{}'.format(version, split)
-        has_gt = split != 'test'
+        has_gt = split == 'train'
         _imdbs[name] = lambda name=name, has_gt=has_gt, imsize=imsize: load_pal(
             name, has_gt, imsize=imsize)
 
