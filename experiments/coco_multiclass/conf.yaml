@@ -1,0 +1,24 @@
+train:
+    optimizer: 'adam'
+    weight_decay: 0.0005
+    num_iter: 2000000
+    lr_multi_step: [[800000, 0.0001], [2000000, 0.00001]]
+    #gradient_clipping: 100.0
+
+    detector: 'FRCN_train'
+    imdb: 'coco_2014_train'
+    val_imdb: 'coco_2014_minival'
+    val_iter: 20000
+    save_iter: 20000
+
+    max_num_detections: 600
+
+    pos_weight: 0.3
+
+gnet:
+    imfeats: False
+    neighbor_feats: False
+    num_pwfeat_fc: 3
+    bias_const_init: 0.01
+    imfeat_dim: 1024
+    pwfeat_narrow_dim: 32

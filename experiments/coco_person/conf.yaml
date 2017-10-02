@@ -1,0 +1,26 @@
+gnet:
+  bias_const_init: 0.1
+  neighbor_feats: false
+  num_blocks: 1
+  num_pwfeat_fc: 3
+  pwfeat_narrow_dim: 32
+random_seed: 42
+train:
+  detector: FRCN_train
+  imdb: coco_2014_train
+  lr_multi_step:
+  - - 1000000
+    - 0.0001
+  - - 2000000
+    - 1.0e-05
+  max_num_detections: 600
+  num_iter: 2000000
+  only_class: person
+  optimizer: adam
+  pos_weight: 0.1
+  pretrained_model: /BS/bbox_nms_net2/work/tf-models/resnet_v1_101.ckpt
+  save_iter: 20000
+  val_imdb: coco_2014_minival
+  val_iter: 20000
+  weight_decay: 0.0005
+
