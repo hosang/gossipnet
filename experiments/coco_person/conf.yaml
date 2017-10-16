@@ -18,7 +18,6 @@ train:
   only_class: person
   optimizer: adam
   pos_weight: 0.1
-  pretrained_model: /BS/bbox_nms_net2/work/tf-models/resnet_v1_101.ckpt
   save_iter: 20000
   val_imdb: coco_2014_minival
   val_iter: 20000
